@@ -293,41 +293,50 @@ class InkRefractiveCalculator:
         else:
             raise ValueError(f"Unknown solvent type: {solvent_type}")
 
-    def calculate_refractive_index(self, pct_ipa=0.0, pct_pg=0.0, target_temp=25):
+    def calculate_refractive_index(self, pct_al=0.0, pct_ipa=0.0, pct_pg=0.0, target_temp=25):
         """
         Refractive index (nD) of the liquid matrix. Handles single
         solvents directly and applies the Gladstone-Dale pseudo-binary
         approximation when IPA and PG coexist.
-
-        Note: the aluminum pigment does not participate in matrix refraction.
         """
-        pct_water = 100.0 - pct_ipa - pct_pg
+        # NEU: Wir berechnen die wahre Wassermenge unter Einbezug von Aluminium
+        pct_water = 100.0 - pct_al - pct_ipa - pct_pg
         if pct_water < 0:
-            raise ValueError("Total solvent mass percentage exceeds 100%. Check your inputs.")
+            raise ValueError("Total mass percentage exceeds 100%. Check your inputs.")
+
+        # Masse der reinen flüssigen Phase
+        pct_liquid_total = pct_ipa + pct_pg + pct_water
+        if pct_liquid_total <= 0:
+            return 1.0  # Fallback
+
+        # Wahre Konzentrationen der Lösungsmittel IN der Flüssigphase
+        ipa_in_liq = (pct_ipa / pct_liquid_total) * 100.0
+        pg_in_liq = (pct_pg / pct_liquid_total) * 100.0
+        water_in_liq = (pct_water / pct_liquid_total) * 100.0
 
         # Case 1: pure water
-        if pct_ipa == 0 and pct_pg == 0:
+        if ipa_in_liq == 0 and pg_in_liq == 0:
             return self.get_liquid_refractive_index('IPA', 0.0, target_temp)
 
         # Case 2: IPA only
-        elif pct_ipa > 0 and pct_pg == 0:
-            return self.get_liquid_refractive_index('IPA', pct_ipa, target_temp)
+        elif ipa_in_liq > 0 and pg_in_liq == 0:
+            return self.get_liquid_refractive_index('IPA', ipa_in_liq, target_temp)
 
         # Case 3: PG only
-        elif pct_pg > 0 and pct_ipa == 0:
-            return self.get_liquid_refractive_index('PG', pct_pg, target_temp)
+        elif pg_in_liq > 0 and ipa_in_liq == 0:
+            return self.get_liquid_refractive_index('PG', pg_in_liq, target_temp)
 
         # Case 4: IPA + PG (Gladstone-Dale pseudo-binary)
-        elif pct_ipa > 0 and pct_pg > 0:
-            total_solvent = pct_ipa + pct_pg
-            ratio_ipa = pct_ipa / total_solvent
-            ratio_pg = pct_pg / total_solvent
+        elif ipa_in_liq > 0 and pg_in_liq > 0:
+            total_solvent_in_liq = ipa_in_liq + pg_in_liq
+            ratio_ipa = ipa_in_liq / total_solvent_in_liq
+            ratio_pg = pg_in_liq / total_solvent_in_liq
 
-            mass_mix_ipa = pct_ipa + (pct_water * ratio_ipa)
-            mass_mix_pg = pct_pg + (pct_water * ratio_pg)
+            mass_mix_ipa = ipa_in_liq + (water_in_liq * ratio_ipa)
+            mass_mix_pg = pg_in_liq + (water_in_liq * ratio_pg)
 
-            pct_ipa_in_mix = (pct_ipa / mass_mix_ipa) * 100.0
-            pct_pg_in_mix = (pct_pg / mass_mix_pg) * 100.0
+            pct_ipa_in_mix = (ipa_in_liq / mass_mix_ipa) * 100.0
+            pct_pg_in_mix = (pg_in_liq / mass_mix_pg) * 100.0
 
             n_1 = self.get_liquid_refractive_index('IPA', pct_ipa_in_mix, target_temp)
             rho_1 = self.density_calc.get_liquid_density('IPA', pct_ipa_in_mix, target_temp)
@@ -346,7 +355,7 @@ class InkRefractiveCalculator:
 
             # convert back using the real ternary-liquid density (Al = 0%)
             rho_liquid_total = self.density_calc.calculate_density(
-                pct_al=0.0, pct_ipa=pct_ipa, pct_pg=pct_pg, target_temp=target_temp)
+                pct_al=0.0, pct_ipa=ipa_in_liq, pct_pg=pg_in_liq, target_temp=target_temp)
 
             return (r_total * rho_liquid_total) + 1.0
 
@@ -882,10 +891,10 @@ class InkCalculator:
         return self.density_calc.calculate_density(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
-    def refractive_index(self, ipa=0.0, pg=0.0, temperature=25.0):
+    def refractive_index(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
         """Refractive index (nD) of the liquid matrix (pigment excluded)."""
         return self.refractive_calc.calculate_refractive_index(
-            pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+            pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
     def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
         """Sound velocity [m/s]."""
@@ -915,7 +924,7 @@ class InkCalculator:
 
         # --- refractive index (matrix only) ---
         n_d = self.refractive_calc.calculate_refractive_index(
-            pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+            pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
         # --- sound velocity ---
         sound = self.sound_calc.calculate(
