@@ -161,7 +161,7 @@ class InkDensityCalculator:
 if __name__ == "__main__":
 
     # Initialize the calculator (loads CSVs into memory once)
-    calculator = InkDensityCalculator(tables_dir="tables_parameters")
+    calculator = InkDensityCalculator(tables_dir="../tables_parameters")
 
     print("--- Single Solvent Tests (Your 4 Data Points at 25°C) ---")
     points = [

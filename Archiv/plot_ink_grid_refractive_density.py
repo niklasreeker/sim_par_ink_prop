@@ -3,17 +3,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Import your custom calculator modules
-from ink_density import InkDensityCalculator
-from ink_refractive import InkRefractiveCalculator
+from Archiv.ink_density import InkDensityCalculator
+from Archiv.ink_refractive import InkRefractiveCalculator
 
 # ==========================================
 # 1. INITIALIZE CALCULATORS
 # ==========================================
 print("Loading empirical tables into memory...")
 try:
-    density_calc = InkDensityCalculator(tables_dir="tables_parameters")
+    density_calc = InkDensityCalculator(tables_dir="../tables_parameters")
     # Pass the existing density_calc to avoid loading density tables twice
-    optical_calc = InkRefractiveCalculator(tables_dir="tables_parameters", density_calculator=density_calc)
+    optical_calc = InkRefractiveCalculator(tables_dir="../tables_parameters", density_calculator=density_calc)
 except Exception as e:
     print(f"Error initializing calculators: {e}")
     print("Please ensure 'ink_density.py', 'ink_refractive.py' and the 'tables_parameters' folder are present.")
