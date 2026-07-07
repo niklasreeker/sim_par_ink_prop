@@ -38,6 +38,9 @@ QUICK START
     props = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
     print(props)
 
+    # with dissolved methyl gallate (dilute-solute corrections, mass %):
+    props = ink.compute(al=1.81, ipa=3.63, pg=3.63, mg=0.23, temperature=25.0)
+
     # or each property on its own (returns a plain number):
     rho  = ink.density(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
     n_d  = ink.refractive_index(ipa=3.64, pg=3.64, temperature=25.0)
@@ -66,6 +69,17 @@ RHO_IPA = 0.785         # g/cm3
 RHO_PG = 1.036          # g/cm3
 RHO_PIGMENT = 2.700     # g/cm3   bulk aluminum; encapsulated may be lower
 BULK_MODULUS_ALUMINUM = 76.0e9   # Pa   (compressibility beta_Al = 1 / K_Al)
+
+# --- Methyl gallate (MG, methyl 3,4,5-trihydroxybenzoate, CAS 99-24-1) ---
+# MG is a DISSOLVED solute (not a suspended solid, not a miscible cosolvent),
+# therefore its solution behaviour is described by apparent molar quantities,
+# NOT by the crystal density. See MethylGallateModel for sources.
+M_MG = 184.15           # g/mol   molar mass (user / PubChem CID 7428)
+RHO_MG_SOLID = 1.526    # g/cm3   crystal density (database) -- REFERENCE ONLY
+V_PHI_MG = 115.9        # cm3/mol apparent molar volume in water (group additivity)
+R_MOL_MG = 41.77        # cm3/mol molar refraction, Na-D (Eisenlohr/Vogel increments)
+K_PHI_S_MG = -25.0e-15  # m3/(mol Pa) apparent molar isentropic compression (estimate)
+B_JD_MG = 0.45e-3       # m3/mol  Jones-Dole B coefficient (estimate)
 
 
 # =====================================================================
@@ -812,6 +826,174 @@ class InkViscosityModel:
 
 # =====================================================================
 # ====================================================================
+#  5) METHYL GALLATE (MG) SOLUTE MODEL -- dilute-solution corrections
+# ====================================================================
+# =====================================================================
+class MethylGallateModel:
+    """
+    First-order solute corrections for methyl gallate (MG) dissolved in
+    the aqueous carrier of the ink.
+
+    WHY A SEPARATE MODEL
+    --------------------
+    MG cannot be treated like IPA/PG (no full-range binary tables exist,
+    MG is only sparingly soluble in water, ~20-25 g/L) and not like the
+    pigment (it is dissolved, not suspended). In the dilute regime
+    (w_MG << 1, design point ~0.23 mass %) every property change is
+    strictly linear in concentration, so each property needs exactly one
+    well-defined increment, taken from apparent molar quantities:
+
+        density           apparent molar volume V_phi
+        refractive index  molar refraction R  +  Lorentz-Lorenz
+        sound velocity    apparent molar isentropic compression K_phi_s
+        viscosity         Jones-Dole:  eta = eta0 * (1 + B*C)
+
+    IMPORTANT: the crystal density (RHO_MG_SOLID = 1.526 g/cm3) is kept
+    for reference only. Dissolved MG occupies V_phi = 115.9 cm3/mol
+    (effective 1.589 g/cm3) because the three phenolic OH groups
+    electrostrict their hydration water. Using the crystal density
+    would underestimate the density increment and (worse) miss the
+    hydration stiffening that dominates the sound-velocity increment.
+
+    PARAMETER SOURCES / TRACEABILITY
+    --------------------------------
+    V_PHI_MG   = V_phi(gallic acid, aq, ~100 cm3/mol, literature)
+                 + CH2 group increment (+15.9 cm3/mol).
+    R_MOL_MG   = Eisenlohr (Z. Phys. Chem. 75 (1911) 585) / Vogel
+                 (J. Chem. Soc. 1948, 1833) atomic refractions for
+                 C8H8O5: 8*C + 8*H + 3*O(OH) + O(C=O) + O(ester)
+                 + 3*C=C(aromatic) = 41.77 cm3/mol.
+    K_PHI_S_MG = group estimate for a trihydroxy aromatic ester,
+                 band -15e-15 .. -35e-15 m3/(mol Pa)
+                 (cf. Hoiland in Hinz (ed.), Thermodynamic Data for
+                 Biochemistry and Biotechnology, Springer 1986;
+                 Galema & Hoiland, J. Phys. Chem. 95 (1991) 5321).
+                 >>> largest model uncertainty: replace with the value
+                 from ONE differential measurement water vs water+MG
+                 (see fit_k_phi_s_from_measurement).
+    B_JD_MG    = gallic-acid analogy + CH2, band 0.35e-3 .. 0.55e-3
+                 m3/mol (Jones-Dole; A*sqrt(C) term = 0, nonelectrolyte).
+
+    Validity: dilute solutions (w_MG < ~1 %), 20..30 C. All parameters
+    are per-instance and overridable, e.g.
+        MethylGallateModel(k_phi_s=-18e-15)
+    """
+
+    SOLUBILITY_WATER_G_PER_L = 22.0   # approx. water solubility at 25 C
+
+    def __init__(self,
+                 molar_mass=M_MG,              # g/mol
+                 rho_solid=RHO_MG_SOLID,       # g/cm3 (reference only)
+                 v_phi=V_PHI_MG,               # cm3/mol
+                 molar_refraction=R_MOL_MG,    # cm3/mol
+                 k_phi_s=K_PHI_S_MG,           # m3/(mol Pa)
+                 b_jones_dole=B_JD_MG):        # m3/mol
+        self.M = molar_mass
+        self.rho_solid = rho_solid
+        self.v_phi = v_phi
+        self.R_mol = molar_refraction
+        self.k_phi_s = k_phi_s
+        self.B = b_jones_dole
+
+    # -- specific volume of the DISSOLVED solute [cm3/g] ---------------
+    @property
+    def v_specific(self):
+        return self.v_phi / self.M
+
+    # ------------------------------------------------------------------
+    def validity_warnings(self, w_mg, w_mg_liquid, rho_liquid):
+        """Dilute-limit and solubility checks (fractions 0..1)."""
+        warnings = []
+        conc_g_per_l = w_mg_liquid * rho_liquid * 1000.0
+        if conc_g_per_l > self.SOLUBILITY_WATER_G_PER_L:
+            warnings.append(
+                f"MG in the liquid phase = {conc_g_per_l:.1f} g/L exceeds the "
+                f"approximate water solubility (~{self.SOLUBILITY_WATER_G_PER_L:.0f} g/L) "
+                f"-- undissolved MG violates the solute model.")
+        if w_mg > 0.01:
+            warnings.append(
+                f"w_MG = {w_mg * 100:.2f} % -- the dilute-solution corrections are "
+                f"first order in concentration; accuracy degrades above ~1 %.")
+        return warnings
+
+    # ------------------------------------------------------------------
+    def corrected_density(self, rho_base, w_mg, rho_water):
+        """
+        Density with MG [g/cm3] from the volume balance 1/rho = sum(w_i*v_i).
+
+        rho_base  : density of the SAME liquid/ink with MG replaced by water
+        w_mg      : MG mass fraction (0..1) referred to rho_base's basis
+        rho_water : pure-water density at the same temperature [g/cm3]
+
+        MG replaces water  ->  d(1/rho) = w_mg * (v_MG - v_water).
+        """
+        d_inv_rho = w_mg * (self.v_specific - 1.0 / rho_water)
+        return 1.0 / (1.0 / rho_base + d_inv_rho)
+
+    def corrected_refractive_index(self, n_base, w_mg_liquid, rho_liquid):
+        """
+        Matrix refractive index with MG via Lorentz-Lorenz.
+
+        n_base      : nD of the liquid matrix without MG
+        w_mg_liquid : MG mass fraction WITHIN the liquid phase (0..1)
+        rho_liquid  : density of the liquid phase incl. MG [g/cm3]
+
+        LL(solute) = R_mol / V_phi; the LL function mixes linearly in
+        volume fraction (exact in the dilute limit).
+        """
+        ll_base = (n_base ** 2 - 1.0) / (n_base ** 2 + 2.0)
+        ll_mg = self.R_mol / self.v_phi
+        phi_mg = w_mg_liquid * rho_liquid * self.v_specific   # volume fraction
+        ll_new = ll_base + phi_mg * (ll_mg - ll_base)
+        return float(np.sqrt((1.0 + 2.0 * ll_new) / (1.0 - ll_new)))
+
+    def corrected_sound_velocity(self, c_base, rho_base_si, rho_new_si, w_mg):
+        """
+        Sound velocity with MG [m/s] from the isentropic-compression
+        balance (per kg of ink, SI units):
+
+            kappa_new * V_new = kappa_base * V_base + n_MG * K_phi_s
+
+        with V = 1/rho, V_base = (1 - w_mg)/rho_base (base-fluid share)
+        and kappa_base from Newton-Laplace. The negative K_phi_s adds the
+        hydration stiffening that a solid-phase (Wood/Urick) treatment
+        of MG would miss entirely.
+        """
+        kappa_base = 1.0 / (rho_base_si * c_base ** 2)
+        n_mg = w_mg / (self.M / 1000.0)          # mol per kg of ink
+        v_new = 1.0 / rho_new_si                 # m3/kg
+        v_base = (1.0 - w_mg) / rho_base_si      # m3/kg
+        kappa_new = (kappa_base * v_base + n_mg * self.k_phi_s) / v_new
+        return float(1.0 / np.sqrt(rho_new_si * kappa_new))
+
+    def viscosity_factor(self, w_mg_liquid, rho_liquid):
+        """
+        Jones-Dole multiplier (1 + B*C) for the carrier viscosity.
+        C = molarity of MG in the liquid phase [mol/m3];
+        rho_liquid in g/cm3. A*sqrt(C) term omitted (nonelectrolyte).
+        """
+        c_molar = (w_mg_liquid * rho_liquid * 1000.0) / (self.M / 1000.0)
+        return 1.0 + self.B * c_molar
+
+    # ------------------------------------------------------------------
+    def fit_k_phi_s_from_measurement(self, c_measured, c_base,
+                                     rho_base_si, rho_new_si, w_mg):
+        """
+        Invert the compression balance: obtain K_phi_s from ONE measured
+        differential sound velocity (e.g. water vs water + 0.23 % MG) and
+        store it on the instance. Returns the fitted value [m3/(mol Pa)].
+        """
+        kappa_base = 1.0 / (rho_base_si * c_base ** 2)
+        kappa_meas = 1.0 / (rho_new_si * c_measured ** 2)
+        n_mg = w_mg / (self.M / 1000.0)
+        v_new = 1.0 / rho_new_si
+        v_base = (1.0 - w_mg) / rho_base_si
+        self.k_phi_s = (kappa_meas * v_new - kappa_base * v_base) / n_mg
+        return self.k_phi_s
+
+
+# =====================================================================
+# ====================================================================
 #  UNIFIED FACADE
 # ====================================================================
 # =====================================================================
@@ -838,6 +1020,7 @@ class InkProperties:
             f"     Aluminum : {c['Al']:7.3f} %",
             f"     IPA      : {c['IPA']:7.3f} %",
             f"     PG       : {c['PG']:7.3f} %",
+            f"     MG       : {c.get('MG', 0.0):7.3f} %",
             f"     Water    : {c['Water']:7.3f} %",
             f"  Temperature : {self.temperature:7.2f} C",
             "  - - - - - - - - - - - - - - - - - - - - - - - - - - - - ",
@@ -869,8 +1052,12 @@ class InkCalculator:
                  suspension_model="batchelor",
                  einstein_coeff=2.5, batchelor_coeff=7.2,
                  intrinsic_viscosity=2.5, phi_max=0.63,
-                 rho_pigment=RHO_PIGMENT):
+                 rho_pigment=RHO_PIGMENT,
+                 mg_model=None):
         self.tables_dir = tables_dir
+
+        # dilute-solute model for methyl gallate (parameters overridable)
+        self.mg_model = mg_model if mg_model is not None else MethylGallateModel()
 
         # one shared density calculator (reused by the optical model)
         self.density_calc = InkDensityCalculator(tables_dir=tables_dir)
@@ -888,75 +1075,166 @@ class InkCalculator:
 
     # ---- helpers -----------------------------------------------------
     @staticmethod
-    def _water_remainder(al, ipa, pg, water):
+    def _water_remainder(al, ipa, pg, water, mg=0.0):
         if water is None:
-            water = 100.0 - al - ipa - pg
+            water = 100.0 - al - ipa - pg - mg
         if water < -1e-9:
             raise ValueError(
-                f"Al + IPA + PG = {al + ipa + pg:.3f}% exceeds 100% (water would be negative).")
+                f"Al + IPA + PG + MG = {al + ipa + pg + mg:.3f}% exceeds 100% "
+                f"(water would be negative).")
         return max(water, 0.0)
 
+    def _mg_context(self, al, ipa, pg, mg, temperature):
+        """
+        Common quantities for the MG solute corrections.
+
+        The BASE state for every correction is the same ink with the MG
+        mass replaced by water (the tabulated models compute exactly
+        that, because they take water as the remainder of al/ipa/pg).
+        """
+        w_mg = mg / 100.0
+        liquid_mass = 100.0 - al                 # liquid matrix incl. MG, mass-%
+        w_mg_liq = (mg / liquid_mass) if liquid_mass > 0 else 0.0
+
+        # pure-water density at T from the 0 % row of the IPA table
+        rho_water = self.density_calc.get_liquid_density('IPA', 0.0, temperature)
+
+        # liquid matrix (no pigment), MG replaced by water -> then corrected
+        ipa_liq = ipa / liquid_mass * 100.0 if liquid_mass > 0 else 0.0
+        pg_liq = pg / liquid_mass * 100.0 if liquid_mass > 0 else 0.0
+        rho_liq_base = self.density_calc.calculate_density(
+            pct_al=0.0, pct_ipa=ipa_liq, pct_pg=pg_liq, target_temp=temperature)
+        rho_liq = self.mg_model.corrected_density(rho_liq_base, w_mg_liq, rho_water)
+
+        return {"w_mg": w_mg, "w_mg_liq": w_mg_liq,
+                "rho_water": rho_water, "rho_liq": rho_liq}
+
     # ---- individual properties --------------------------------------
-    def density(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
-        """Ink density [g/cm3]."""
-        return self.density_calc.calculate_density(
+    def density(self, al=0.0, ipa=0.0, pg=0.0, mg=0.0, temperature=25.0):
+        """Ink density [g/cm3]. mg = mass % dissolved methyl gallate."""
+        rho = self.density_calc.calculate_density(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+        if mg > 0:
+            ctx = self._mg_context(al, ipa, pg, mg, temperature)
+            rho = self.mg_model.corrected_density(rho, ctx["w_mg"], ctx["rho_water"])
+        return rho
 
-    def refractive_index(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
+    def refractive_index(self, al=0.0, ipa=0.0, pg=0.0, mg=0.0, temperature=25.0):
         """Refractive index (nD) of the liquid matrix (pigment excluded)."""
-        return self.refractive_calc.calculate_refractive_index(
+        n_d = self.refractive_calc.calculate_refractive_index(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+        if mg > 0:
+            ctx = self._mg_context(al, ipa, pg, mg, temperature)
+            n_d = self.mg_model.corrected_refractive_index(
+                n_d, ctx["w_mg_liq"], ctx["rho_liq"])
+        return n_d
 
-    def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
+    def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0, mg=0.0, temperature=25.0):
         """Sound velocity [m/s]."""
-        return self.sound_calc.sound_velocity(
+        res = self.sound_calc.calculate(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature)
+        c = res.sound_velocity
+        if mg > 0:
+            ctx = self._mg_context(al, ipa, pg, mg, temperature)
+            rho_base_si = res.density * 1000.0
+            rho_new_si = self.mg_model.corrected_density(
+                res.density, ctx["w_mg"], ctx["rho_water"]) * 1000.0
+            c = self.mg_model.corrected_sound_velocity(
+                c, rho_base_si, rho_new_si, ctx["w_mg"])
+        return c
 
-    def viscosity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, water=None):
+    def viscosity(self, al=0.0, ipa=0.0, pg=0.0, mg=0.0, temperature=25.0, water=None):
         """Ink viscosity [mPa.s]."""
-        water = self._water_remainder(al, ipa, pg, water)
-        return self.viscosity_model.estimate(
-            water=water, ipa=ipa, pg=pg, aluminum=al,
+        water = self._water_remainder(al, ipa, pg, water, mg=mg)
+        # base carrier: MG mass counted as water (dilute-solvent view) ...
+        eta = self.viscosity_model.estimate(
+            water=water + mg, ipa=ipa, pg=pg, aluminum=al,
             temperature_C=temperature, verbose=False)["viscosity_mPas"]
+        # ... then the Jones-Dole solute factor on top
+        if mg > 0:
+            ctx = self._mg_context(al, ipa, pg, mg, temperature)
+            eta *= self.mg_model.viscosity_factor(ctx["w_mg_liq"], ctx["rho_liq"])
+        return eta
 
     # ---- everything at once -----------------------------------------
-    def compute(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, water=None):
+    def compute(self, al=0.0, ipa=0.0, pg=0.0, mg=0.0, temperature=25.0, water=None):
         """
         Compute all four properties at once and return an InkProperties
         object (printable). Water is the remainder unless given explicitly.
+        mg = mass % of dissolved methyl gallate (dilute-solute model).
         """
-        water = self._water_remainder(al, ipa, pg, water)
+        water = self._water_remainder(al, ipa, pg, water, mg=mg)
         warnings = []
         details = {}
 
+        # --- base ink: identical recipe with the MG mass counted as water ---
+        # (the tabulated models take water as the remainder of al/ipa/pg,
+        #  which is exactly this base state)
+
         # --- density ---
-        rho = self.density_calc.calculate_density(
+        rho_base = self.density_calc.calculate_density(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+        rho = rho_base
 
         # --- refractive index (matrix only) ---
-        n_d = self.refractive_calc.calculate_refractive_index(
+        n_base = self.refractive_calc.calculate_refractive_index(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+        n_d = n_base
 
         # --- sound velocity ---
         sound = self.sound_calc.calculate(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature)
         warnings.extend(sound.warnings)
         details["density_wood_model"] = sound.density
+        c_sound = sound.sound_velocity
 
-        # --- viscosity ---
+        # --- viscosity (base carrier incl. MG mass as water) ---
         visc = self.viscosity_model.estimate(
-            water=water, ipa=ipa, pg=pg, aluminum=al,
+            water=water + mg, ipa=ipa, pg=pg, aluminum=al,
             temperature_C=temperature, verbose=False)
         warnings.extend(visc["warnings"])
         details["viscosity"] = visc
+        eta = visc["viscosity_mPas"]
+
+        # --- methyl gallate solute corrections ---
+        if mg > 0:
+            ctx = self._mg_context(al, ipa, pg, mg, temperature)
+            warnings.extend(self.mg_model.validity_warnings(
+                ctx["w_mg"], ctx["w_mg_liq"], ctx["rho_liq"]))
+
+            rho = self.mg_model.corrected_density(
+                rho_base, ctx["w_mg"], ctx["rho_water"])
+            n_d = self.mg_model.corrected_refractive_index(
+                n_base, ctx["w_mg_liq"], ctx["rho_liq"])
+
+            rho_base_wood_si = sound.density * 1000.0
+            rho_new_wood_si = self.mg_model.corrected_density(
+                sound.density, ctx["w_mg"], ctx["rho_water"]) * 1000.0
+            c_sound = self.mg_model.corrected_sound_velocity(
+                sound.sound_velocity, rho_base_wood_si, rho_new_wood_si, ctx["w_mg"])
+
+            jd_factor = self.mg_model.viscosity_factor(
+                ctx["w_mg_liq"], ctx["rho_liq"])
+            eta = eta * jd_factor
+
+            details["methyl_gallate"] = {
+                "w_mg_liquid": ctx["w_mg_liq"],
+                "conc_g_per_L_liquid": ctx["w_mg_liq"] * ctx["rho_liq"] * 1000.0,
+                "delta_density_gcm3": rho - rho_base,
+                "delta_refractive_index": n_d - n_base,
+                "delta_sound_velocity_ms": c_sound - sound.sound_velocity,
+                "jones_dole_factor": jd_factor,
+                "v_phi_cm3mol": self.mg_model.v_phi,
+                "k_phi_s_m3molPa": self.mg_model.k_phi_s,
+            }
 
         return InkProperties(
-            composition={"Al": al, "IPA": ipa, "PG": pg, "Water": water},
+            composition={"Al": al, "IPA": ipa, "PG": pg, "MG": mg, "Water": water},
             temperature=temperature,
             density=rho,
             refractive_index=n_d,
-            sound_velocity=sound.sound_velocity,
-            viscosity=visc["viscosity_mPas"],
+            sound_velocity=c_sound,
+            viscosity=eta,
             vol_fraction_al=sound.vol_fraction_al,
             details=details,
             warnings=warnings,
@@ -982,8 +1260,28 @@ if __name__ == "__main__":
     ink = InkCalculator(tables_dir=tables)
 
     # original ink: 1.82% Al, 3.64% IPA, 3.64% PG, rest water, 25 C
-    props = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25)
-    print(props)
+    props_old = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25)
+    print(props_old)
+
+    # new ink with methyl gallate:
+    # 1.81% Al, 3.63% IPA, 3.63% PG, 0.23% MG, rest water (90.70%), 25 C
+    props_new = ink.compute(al=1.81, ipa=3.63, pg=3.63, mg=0.23, temperature=25)
+    print(props_new)
+
+    print("Recipe change  (new - old):")
+    print(f"  Delta density          : {props_new.density - props_old.density:+.5f} g/cm3")
+    print(f"  Delta refractive index : "
+          f"{props_new.refractive_index - props_old.refractive_index:+.5f}")
+    print(f"  Delta sound velocity   : "
+          f"{props_new.sound_velocity - props_old.sound_velocity:+.2f} m/s")
+    print(f"  Delta viscosity        : "
+          f"{props_new.viscosity - props_old.viscosity:+.4f} mPa.s")
+    if "methyl_gallate" in props_new.details:
+        d = props_new.details["methyl_gallate"]
+        print(f"  (pure MG contribution: d_rho {d['delta_density_gcm3']:+.5f}, "
+              f"d_n {d['delta_refractive_index']:+.5f}, "
+              f"d_c {d['delta_sound_velocity_ms']:+.2f} m/s, "
+              f"Jones-Dole x{d['jones_dole_factor']:.4f})")
 
     # individual numbers, if you only need one property:
     #   rho = ink.density(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
