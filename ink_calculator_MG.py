@@ -1260,12 +1260,12 @@ if __name__ == "__main__":
     ink = InkCalculator(tables_dir=tables)
 
     # original ink: 1.82% Al, 3.64% IPA, 3.64% PG, rest water, 25 C
-    props_old = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25)
+    props_old = ink.compute(al=160/88, ipa=320/88, pg=320/88, temperature=25)
     print(props_old)
 
     # new ink with methyl gallate:
     # 1.81% Al, 3.63% IPA, 3.63% PG, 0.23% MG, rest water (90.70%), 25 C
-    props_new = ink.compute(al=1.81, ipa=3.63, pg=3.63, mg=0.23, temperature=25)
+    props_new = ink.compute(al=160/88.2, ipa=320/88.2, pg=320/88.2, mg=20/88.2, temperature=25)
     print(props_new)
 
     print("Recipe change  (new - old):")
