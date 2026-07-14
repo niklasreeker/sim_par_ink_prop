@@ -33,7 +33,7 @@ RES_RI = 0.0002  # nD
 RES_SOUND = 0.01  # m/s
 RES_VISC_PCT = 0.01  # 1% vom Messwert
 
-ink = InkCalculator(tables_dir="tables_parameters")
+ink = InkCalculator(tables_dir="../tables_parameters")
 al_range = np.linspace(1.0, 3.0, 100)
 
 sns.set_theme(style="whitegrid")

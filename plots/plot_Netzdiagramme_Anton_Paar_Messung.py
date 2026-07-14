@@ -21,7 +21,7 @@ from ink_calculator import InkCalculator
 PG_BASE = 0.0
 TEMP_BASE = 25.0
 
-ink = InkCalculator(tables_dir="tables_parameters")
+ink = InkCalculator(tables_dir="../tables_parameters")
 
 # Bereiche definieren
 MIN_AL, MAX_AL = 0.5, 2.2

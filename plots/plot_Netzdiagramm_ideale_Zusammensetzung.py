@@ -26,7 +26,7 @@ IPA_BASE = 3.64
 PG_BASE = 3.64
 TEMP_BASE = 25.0
 
-ink = InkCalculator(tables_dir="tables_parameters")
+ink = InkCalculator(tables_dir="../tables_parameters")
 
 # Bereiche definieren
 MIN_AL, MAX_AL = 1.0, 2.64

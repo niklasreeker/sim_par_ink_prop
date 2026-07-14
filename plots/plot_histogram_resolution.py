@@ -25,7 +25,7 @@ import numpy as np
 # ---------------------------------------------------------------
 LOG_SCALE = False        # True: logarithmische y-Achse (bei stark
                          # unterschiedlichen Groessenordnungen sinnvoll)
-OUTPUT_FILE = "plots/signal_vs_uncertainties_25C.png"
+OUTPUT_FILE = "signal_vs_uncertainties_25C.png"
 
 # ---------------------------------------------------------------
 #  Daten (25 C)

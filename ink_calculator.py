@@ -981,9 +981,9 @@ if __name__ == "__main__":
 
     ink = InkCalculator(tables_dir=tables)
 
-    # original ink: 1.82% Al, 3.64% IPA, 3.64% PG, rest water, 25 C
-    props = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25)
-    print(props)
+    # # original ink: 1.82% Al, 3.64% IPA, 3.64% PG, rest water, 25 C
+    # props = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25)
+    # print(props)
 
     # individual numbers, if you only need one property:
     #   rho = ink.density(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
@@ -993,3 +993,7 @@ if __name__ == "__main__":
 
     # anchor the viscosity estimate to a measured value:
     #   ink.calibrate_viscosity(1.9, al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
+
+
+    props = ink.compute(al=0, ipa=0, pg=35, temperature=25)
+    print(props)

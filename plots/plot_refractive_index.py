@@ -79,8 +79,8 @@ def locate_and_import():
 
     # tables_parameters neben dem Skript oder im aktuellen Arbeitsordner suchen
     candidates = [
-        os.path.join(here, "tables_parameters"),
-        os.path.join(os.getcwd(), "tables_parameters"),
+        os.path.join(here, "../tables_parameters"),
+        os.path.join(os.getcwd(), "../tables_parameters"),
     ]
     tables_dir = next((p for p in candidates if os.path.isdir(p)), None)
     if tables_dir is None:
@@ -245,7 +245,7 @@ def main():
         raise SystemExit("Keine berechenbaren Datenreihen -- Abbruch.")
 
     # --- CSV-Export ---
-    csv_path = os.path.join(OUT_DIR, "refractive_index_values.csv")
+    csv_path = os.path.join(OUT_DIR, "../refractive_index_values.csv")
     with open(csv_path, "w", encoding="utf-8") as f:
         f.write("System,Content_solvent_percent,Refractive_index_nD\n")
         for name, content, n in csv_rows:
