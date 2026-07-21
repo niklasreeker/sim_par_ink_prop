@@ -4,23 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7868e429-86b8-4d63-8e2a-05ba75001d88" name="Changes" comment="Netzdiagramme überarbeitet und Ink resolution skript geschrieben">
-      <change afterPath="$PROJECT_DIR$/plot_evaporation_tests_2.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plot_evaporation_tests_3.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plots/plot_evaporation_tests.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_03_07_2026_09_25_[Changes]/shelved.patch" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_03_07_2026_09_25__Changes_.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_06_07_2026_10_31_[Changes]1/shelved.patch" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_06_07_2026_10_31__Changes_1.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/simulation_parameters_ink_properties.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/simulation_parameters_ink_properties.iml" afterDir="false" />
+    <list default="true" id="7868e429-86b8-4d63-8e2a-05ba75001d88" name="Changes" comment="Verdunstungsversuche im Labor Auswertung Skript ergänzt">
+      <change afterPath="$PROJECT_DIR$/ablation.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/demo_run.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ukf_ablation.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ukf_aluminium.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ukf_demo.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_07_07_2026_19_45_[Changes]1/shelved.patch" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_07_07_2026_19_45__Changes_1.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_08_07_2026_09_36_[Changes]/shelved.patch" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_08_07_2026_09_36__Changes_.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ink_calculator.py" beforeDir="false" afterPath="$PROJECT_DIR$/ink_calculator.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ink_resolution_check.py" beforeDir="false" afterPath="$PROJECT_DIR$/plots/plot_ink_resolution_check.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plot_Netzdiagramm_ideale_Zusammensetzung.py" beforeDir="false" afterPath="$PROJECT_DIR$/plots/plot_Netzdiagramm_ideale_Zusammensetzung.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plot_Netzdiagramme_Anton_Paar_Messung.py" beforeDir="false" afterPath="$PROJECT_DIR$/plots/plot_Netzdiagramme_Anton_Paar_Messung.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plot_histogram_resolution.py" beforeDir="false" afterPath="$PROJECT_DIR$/plots/plot_histogram_resolution.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plot_refractive_index.py" beforeDir="false" afterPath="$PROJECT_DIR$/plots/plot_refractive_index.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plots/signal_vs_uncertainties_25C.png" beforeDir="false" afterPath="$PROJECT_DIR$/plots/signal_vs_uncertainties_25C.png" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -55,23 +49,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.6832938773711557" />
-      <entry key="MS500" value="2.4780534564742425" />
-      <entry key="S2" value="2.8448487565632705" />
-      <entry key="S5" value="2.9356265081615986" />
-      <entry key="S10" value="2.967413432312035" />
-      <entry key="S30" value="2.9890475913244012" />
-      <entry key="S60" value="2.9945124314863376" />
-      <entry key="M2" value="2.9972533681512523" />
-      <entry key="M5" value="2.998900662998532" />
-      <entry key="M10" value="2.999450319544523" />
-      <entry key="M15" value="2.9996918790983287" />
-      <entry key="M30" value="3.033499699553537" />
-      <entry key="H1" value="3.8154335157493073" />
-      <entry key="H2" value="7.043331711674659" />
-      <entry key="H4" value="12.700632283909266" />
-      <entry key="D1" value="41.7763721342128" />
-      <entry key="W1" value="60.7300944356726" />
+      <entry key="MS100" value="1.0242294279712483" />
+      <entry key="MS500" value="1.9152421156135422" />
+      <entry key="S2" value="5.234570267283729" />
+      <entry key="S5" value="8.946974474095327" />
+      <entry key="S10" value="11.370607348430497" />
+      <entry key="S30" value="13.617682486231052" />
+      <entry key="S60" value="14.284243152270623" />
+      <entry key="M2" value="14.635715867173557" />
+      <entry key="M5" value="14.852714847954505" />
+      <entry key="M10" value="14.926092605707593" />
+      <entry key="M15" value="14.95066933977805" />
+      <entry key="M30" value="14.975373353033522" />
+      <entry key="H1" value="15.005745630623805" />
+      <entry key="H2" value="15.478943242958639" />
+      <entry key="H4" value="18.330114650357416" />
+      <entry key="D1" value="48.4269541858335" />
+      <entry key="W1" value="73.82622131484663" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -79,37 +73,37 @@
       <entry key="S2" value="0.0" />
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
-      <entry key="S30" value="4.515526518584786E-192" />
-      <entry key="S60" value="2.124976827775961E-96" />
-      <entry key="M2" value="1.457730025682382E-48" />
-      <entry key="M5" value="7.336194545884712E-20" />
-      <entry key="M10" value="2.708541036404048E-10" />
-      <entry key="M15" value="4.1862350851973364E-7" />
-      <entry key="M30" value="6.470112122312091E-4" />
-      <entry key="H1" value="0.02543683956214278" />
-      <entry key="H2" value="0.16013950186233716" />
-      <entry key="H4" value="0.4248844278618604" />
-      <entry key="D1" value="1.4007629802030248" />
-      <entry key="W1" value="1.8947519236373345" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="7.87318326330252E-236" />
+      <entry key="M2" value="2.8059193258720944E-118" />
+      <entry key="M5" value="9.533010516415837E-48" />
+      <entry key="M10" value="3.0875573705464733E-24" />
+      <entry key="M15" value="2.120362056682946E-16" />
+      <entry key="M30" value="1.456146303729109E-8" />
+      <entry key="H1" value="1.2067290102346427E-4" />
+      <entry key="H2" value="0.011029905068208322" />
+      <entry key="H4" value="0.1115083693780207" />
+      <entry key="D1" value="1.1208240227752861" />
+      <entry key="W1" value="1.83535422523518" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.6872546565890855" />
-      <entry key="MS500" value="1.8088463164512723" />
-      <entry key="S2" value="2.603232529250491" />
-      <entry key="S5" value="2.8308997671359277" />
-      <entry key="S10" value="2.9136022395668713" />
-      <entry key="S30" value="2.970778811138142" />
-      <entry key="S60" value="2.985335937371085" />
-      <entry key="M2" value="2.9926545465133976" />
-      <entry key="M5" value="2.9970585902007483" />
-      <entry key="M10" value="2.998528858866533" />
-      <entry key="M15" value="2.999077893911818" />
-      <entry key="M30" value="3.0338386085907283" />
-      <entry key="H1" value="3.84070345876775" />
-      <entry key="H2" value="7.20335620941551" />
-      <entry key="H4" value="13.125423488560278" />
-      <entry key="D1" value="43.177069401845294" />
-      <entry key="W1" value="62.62483185588787" />
+      <entry key="MS100" value="1.0028302436524352" />
+      <entry key="MS500" value="1.905328808291066" />
+      <entry key="S2" value="5.226748875154793" />
+      <entry key="S5" value="8.941145720360181" />
+      <entry key="S10" value="11.366748142038077" />
+      <entry key="S30" value="13.616093564891706" />
+      <entry key="S60" value="14.283403019749976" />
+      <entry key="M2" value="14.63528369321329" />
+      <entry key="M5" value="14.852538979428443" />
+      <entry key="M10" value="14.926004163653607" />
+      <entry key="M15" value="14.950610264968175" />
+      <entry key="M30" value="14.975343766385814" />
+      <entry key="H1" value="15.005850700380764" />
+      <entry key="H2" value="15.48995781764811" />
+      <entry key="H4" value="18.441594848342934" />
+      <entry key="D1" value="49.54772501081961" />
+      <entry key="W1" value="75.66156140307338" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -155,7 +149,7 @@
     "git-widget-placeholder": "main",
     "ignore.virus.scanning.warn.message": "true",
     "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "C:/Users/reeker/Documents/Masterarbeit/simulation_parameters_ink_properties/Archiv",
+    "last_opened_file_path": "C:/Users/reeker/Documents/Masterarbeit/simulation_parameters_ink_properties",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -167,6 +161,7 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties" />
       <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties\Archiv" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
@@ -339,16 +334,30 @@
       <workItem from="1783431314188" duration="2751000" />
       <workItem from="1783524045121" duration="8000" />
       <workItem from="1783688029822" duration="594000" />
-      <workItem from="1784017451813" duration="10917000" />
+      <workItem from="1784017451813" duration="11176000" />
+      <workItem from="1784641069275" duration="1949000" />
     </task>
+    <task id="LOCAL-00001" summary="Verdunstungsversuche im Labor Auswertung Skript ergänzt">
+      <option name="closed" value="true" />
+      <created>1784046146467</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1784046146467</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Verdunstungsversuche im Labor Auswertung Skript ergänzt" />
+    <option name="LAST_COMMIT_MESSAGE" value="Verdunstungsversuche im Labor Auswertung Skript ergänzt" />
+  </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_refractive_sound_speed_simulation.coverage" NAME="density_refractive_sound_speed_simulation Coverage Results" MODIFIED="1780740368178" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests.coverage" NAME="plot_evaporation_tests Coverage Results" MODIFIED="1784045879144" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests.coverage" NAME="plot_evaporation_tests Coverage Results" MODIFIED="1784046087175" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_resolution_check.coverage" NAME="ink_resolution_check Coverage Results" MODIFIED="1784018335887" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_ink_grid_refractive_density__1_.coverage" NAME="plot_ink_grid_refractive_density (1) Coverage Results" MODIFIED="1781001608102" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_calculator.coverage" NAME="ink_calculator Coverage Results" MODIFIED="1784018806302" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
