@@ -995,5 +995,5 @@ if __name__ == "__main__":
     #   ink.calibrate_viscosity(1.9, al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
 
 
-    props = ink.compute(al=0, ipa=0, pg=35, temperature=25)
+    props = ink.compute(al=0, ipa=0, pg=0, temperature=24.87)
     print(props)
