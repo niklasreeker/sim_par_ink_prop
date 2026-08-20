@@ -1325,5 +1325,5 @@ if __name__ == "__main__":
     ink.sound_calc.self_test(verbose=True)
     print()
 
-    props = ink.compute(al=0, ipa=0, pg=35, temperature=25)
+    props = ink.compute(al=1.8128, ipa=3.6256, pg=3.6256, temperature=23.66)
     print(props)
