@@ -4,9 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7868e429-86b8-4d63-8e2a-05ba75001d88" name="Changes" comment="Evaluierungsskript für die Labormessungen ergänzt">
-      <change afterPath="$PROJECT_DIR$/laboratory_measurement_L-Com/measurement_data/Kennfeld_v2 (7).csv" afterDir="false" />
+    <list default="true" id="7868e429-86b8-4d63-8e2a-05ba75001d88" name="Changes" comment="Verdunstungsversuche im Labor Auswertung Skript ergänzt">
+      <change beforePath="$PROJECT_DIR$/.idea/simulation_parameters_ink_properties.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/simulation_parameters_ink_properties.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/laboratory_measurement_L-Com/measurement_data/Kennfeld_v2 (6).csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/laboratory_measurement_L-Com/measurement_data/Kennfeld_v2 (7).csv" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/laboratory_measurement_L-Com/results/Sample_000.png" beforeDir="false" afterPath="$PROJECT_DIR$/laboratory_measurement_L-Com/results/Sample_000.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/laboratory_measurement_L-Com/results/Sample_001.png" beforeDir="false" afterPath="$PROJECT_DIR$/laboratory_measurement_L-Com/results/Sample_001.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/laboratory_measurement_L-Com/results/measurement_data_processed.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/laboratory_measurement_L-Com/results/measurement_data_processed.xlsx" afterDir="false" />
@@ -35,7 +37,7 @@
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/niklasreeker/sim_par_ink_prop.git&quot;,
-    &quot;accountId&quot;: &quot;0a309a01-4760-427a-98fe-b7a878721cf7&quot;
+    &quot;accountId&quot;: &quot;a032d771-fdfb-4491-802d-290a5e627024&quot;
   }
 }</component>
   <component name="McpProjectServerCommands">
@@ -44,23 +46,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.000370237641478" />
-      <entry key="MS500" value="1.422758530852391" />
-      <entry key="S2" value="3.715742433355868" />
-      <entry key="S5" value="6.622025384714263" />
-      <entry key="S10" value="8.925211409076226" />
-      <entry key="S30" value="11.361769487899046" />
-      <entry key="S60" value="12.138765556711746" />
-      <entry key="M2" value="12.558223639601511" />
-      <entry key="M5" value="12.820526111036543" />
-      <entry key="M10" value="12.909795201155278" />
-      <entry key="M15" value="12.939758965319527" />
-      <entry key="M30" value="12.970060279202443" />
-      <entry key="H1" value="13.021515146264644" />
-      <entry key="H2" value="13.693812758722142" />
-      <entry key="H4" value="17.041929681312585" />
-      <entry key="D1" value="47.90639557159982" />
-      <entry key="W1" value="72.96298892032122" />
+      <entry key="MS100" value="1.0242294279712483" />
+      <entry key="MS500" value="1.9152421156135422" />
+      <entry key="S2" value="5.234570267283729" />
+      <entry key="S5" value="8.946974474095327" />
+      <entry key="S10" value="11.370607348430497" />
+      <entry key="S30" value="13.617682486231052" />
+      <entry key="S60" value="14.284243152270623" />
+      <entry key="M2" value="14.635715867173557" />
+      <entry key="M5" value="14.852714847954505" />
+      <entry key="M10" value="14.926092605707593" />
+      <entry key="M15" value="14.95066933977805" />
+      <entry key="M30" value="14.975373353033522" />
+      <entry key="H1" value="15.005745630623805" />
+      <entry key="H2" value="15.478943242958639" />
+      <entry key="H4" value="18.330114650357416" />
+      <entry key="D1" value="48.4269541858335" />
+      <entry key="W1" value="73.82622131484663" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -69,36 +71,36 @@
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
       <entry key="S30" value="0.0" />
-      <entry key="S60" value="1.542066690877573E-223" />
-      <entry key="M2" value="3.9269156992193893E-112" />
-      <entry key="M5" value="2.7391803736825083E-45" />
-      <entry key="M10" value="5.233717964967649E-23" />
-      <entry key="M15" value="1.399179855298877E-15" />
-      <entry key="M30" value="3.74056126280294E-8" />
-      <entry key="H1" value="1.9340853414379276E-4" />
-      <entry key="H2" value="0.01396383519630972" />
-      <entry key="H4" value="0.12546538829628015" />
-      <entry key="D1" value="1.1430717955835792" />
-      <entry key="W1" value="1.840514891788708" />
+      <entry key="S60" value="7.87318326330252E-236" />
+      <entry key="M2" value="2.8059193258720944E-118" />
+      <entry key="M5" value="9.533010516415837E-48" />
+      <entry key="M10" value="3.0875573705464733E-24" />
+      <entry key="M15" value="2.120362056682946E-16" />
+      <entry key="M30" value="1.456146303729109E-8" />
+      <entry key="H1" value="1.2067290102346427E-4" />
+      <entry key="H2" value="0.011029905068208322" />
+      <entry key="H4" value="0.1115083693780207" />
+      <entry key="D1" value="1.1208240227752861" />
+      <entry key="W1" value="1.83535422523518" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9730130008864684" />
-      <entry key="MS500" value="1.4140612284657232" />
-      <entry key="S2" value="3.684857323813356" />
-      <entry key="S5" value="6.5817782277168275" />
-      <entry key="S10" value="8.893374016196029" />
-      <entry key="S30" value="11.347063194233726" />
-      <entry key="S60" value="12.130766644088341" />
-      <entry key="M2" value="12.554050613255516" />
-      <entry key="M5" value="12.81881358940293" />
-      <entry key="M10" value="12.908931579490652" />
-      <entry key="M15" value="12.93918157108897" />
-      <entry key="M30" value="12.96977076554447" />
-      <entry key="H1" value="13.02156164530523" />
-      <entry key="H2" value="13.707690176535337" />
-      <entry key="H4" value="17.16732473616367" />
-      <entry key="D1" value="49.04940468985716" />
-      <entry key="W1" value="74.80348834872075" />
+      <entry key="MS100" value="1.0028302436524352" />
+      <entry key="MS500" value="1.905328808291066" />
+      <entry key="S2" value="5.226748875154793" />
+      <entry key="S5" value="8.941145720360181" />
+      <entry key="S10" value="11.366748142038077" />
+      <entry key="S30" value="13.616093564891706" />
+      <entry key="S60" value="14.283403019749976" />
+      <entry key="M2" value="14.63528369321329" />
+      <entry key="M5" value="14.852538979428443" />
+      <entry key="M10" value="14.926004163653607" />
+      <entry key="M15" value="14.950610264968175" />
+      <entry key="M30" value="14.975343766385814" />
+      <entry key="H1" value="15.005850700380764" />
+      <entry key="H2" value="15.48995781764811" />
+      <entry key="H4" value="18.441594848342934" />
+      <entry key="D1" value="49.54772501081961" />
+      <entry key="W1" value="75.66156140307338" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -109,126 +111,67 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python tests.Doctests in ink_calculator.executor&quot;: &quot;Run&quot;,
-    &quot;Python tests.Doctests in ink_calculator_MG.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Visualisierung.executor&quot;: &quot;Run&quot;,
-    &quot;Python.auswertung.executor&quot;: &quot;Run&quot;,
-    &quot;Python.density_calculation.executor&quot;: &quot;Run&quot;,
-    &quot;Python.density_refractive_simulation.executor&quot;: &quot;Run&quot;,
-    &quot;Python.density_refractive_sound_speed_simulation.executor&quot;: &quot;Run&quot;,
-    &quot;Python.density_sound_speed_simulation.executor&quot;: &quot;Run&quot;,
-    &quot;Python.evaluation_laboratory_measurement.executor&quot;: &quot;Run&quot;,
-    &quot;Python.help_script.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_calculator.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_calculator_MG.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_calculator_sound_advanced.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_density.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_refractive.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_resolution_check.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_sensor_grids.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ink_simulation.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_Netzdiagramme_Anton_Paar_Messung.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_evaporation_tests.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_evaporation_tests_2 (1).executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_evaporation_tests_2.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_evaporation_tests_3.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_histogram_resolution.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_ink_grid_refractive_density (1).executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_ink_grid_sound_density.executor&quot;: &quot;Run&quot;,
-    &quot;Python.plot_refractive_index.executor&quot;: &quot;Run&quot;,
-    &quot;Python.ukf_aluminium.executor&quot;: &quot;Run&quot;,
-    &quot;Python.water_calc_density_speed_sound.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/nikla/OneDrive/Documents/01_Uni/01_Master/00_Masterarbeit/sim_par_ink_prop/laboratory_measurement_L-Com/measurement_data&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.jshint&quot;: &quot;&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python tests.Doctests in ink_calculator.executor": "Run",
+    "Python tests.Doctests in ink_calculator_MG.executor": "Run",
+    "Python.density_calculation.executor": "Run",
+    "Python.density_refractive_simulation.executor": "Run",
+    "Python.density_refractive_sound_speed_simulation.executor": "Run",
+    "Python.density_sound_speed_simulation.executor": "Run",
+    "Python.evaluation_laboratory_measurement.executor": "Run",
+    "Python.help_script.executor": "Run",
+    "Python.ink_calculator.executor": "Run",
+    "Python.ink_calculator_MG.executor": "Run",
+    "Python.ink_density.executor": "Run",
+    "Python.ink_refractive.executor": "Run",
+    "Python.ink_resolution_check.executor": "Run",
+    "Python.ink_sensor_grids.executor": "Run",
+    "Python.ink_simulation.executor": "Run",
+    "Python.plot_Netzdiagramme_Anton_Paar_Messung.executor": "Run",
+    "Python.plot_evaporation_tests.executor": "Run",
+    "Python.plot_evaporation_tests_2 (1).executor": "Run",
+    "Python.plot_evaporation_tests_2.executor": "Run",
+    "Python.plot_evaporation_tests_3.executor": "Run",
+    "Python.plot_histogram_resolution.executor": "Run",
+    "Python.plot_ink_grid_refractive_density (1).executor": "Run",
+    "Python.plot_ink_grid_sound_density.executor": "Run",
+    "Python.plot_refractive_index.executor": "Run",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "junie.onboarding.icon.badge.shown": "true",
+    "last_opened_file_path": "C:/Users/reeker/Documents/Masterarbeit/simulation_parameters_ink_properties",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
-      <recent name="C:\Users\nikla\OneDrive\Documents\01_Uni\01_Master\00_Masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data" />
-      <recent name="C:\Users\nikla\OneDrive\Documents\01_Uni\01_Master\00_Masterarbeit\sim_par_ink_prop\kennfeld\messdaten" />
-      <recent name="C:\Users\nikla\OneDrive\Documents\01_Uni\01_Master\00_Masterarbeit\sim_par_ink_prop" />
+      <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties" />
       <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties\Archiv" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="C:\Users\nikla\OneDrive\Documents\01_Uni\01_Master\00_Masterarbeit\sim_par_ink_prop\Archiv" />
       <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties" />
       <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties\plots" />
+      <recent name="C:\Users\nikla\OneDrive\Documents\01_Uni\01_Master\00_Masterarbeit\sim_par_ink_prop\Archiv" />
       <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties\Archiv" />
       <recent name="C:\Users\reeker\Documents\Masterarbeit\simulation_parameters_ink_properties\density_tables" />
     </key>
   </component>
   <component name="RunManager" selected="Python.evaluation_laboratory_measurement">
-    <configuration name="Visualisierung" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="simulation_parameters_ink_properties" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/kennfeld" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="false" />
-      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/kennfeld/Visualisierung.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="auswertung" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="simulation_parameters_ink_properties" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/kennfeld" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="false" />
-      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/kennfeld/auswertung.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
     <configuration name="evaluation_laboratory_measurement" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="simulation_parameters_ink_properties" />
       <option name="ENV_FILES" value="" />
@@ -254,7 +197,7 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
-    <configuration name="ink_calculator" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+    <configuration name="plot_Netzdiagramme_Anton_Paar_Messung" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="simulation_parameters_ink_properties" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -263,14 +206,14 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/plots" />
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="DEBUG_JUST_MY_CODE" value="false" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/ink_calculator.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/plots/plot_Netzdiagramme_Anton_Paar_Messung.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -279,7 +222,32 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
-    <configuration name="ink_calculator_sound_advanced" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+    <configuration name="plot_evaporation_tests" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="simulation_parameters_ink_properties" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/plots" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/plots/plot_evaporation_tests.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="plot_evaporation_tests_2 (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="simulation_parameters_ink_properties" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -295,7 +263,32 @@
       <option name="DEBUG_JUST_MY_CODE" value="false" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/ink_calculator_sound_advanced.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/plot_evaporation_tests_2.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="plot_evaporation_tests_3" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="simulation_parameters_ink_properties" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/plot_evaporation_tests_3.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -307,18 +300,18 @@
     <recent_temporary>
       <list>
         <item itemvalue="Python.evaluation_laboratory_measurement" />
-        <item itemvalue="Python.auswertung" />
-        <item itemvalue="Python.ink_calculator_sound_advanced" />
-        <item itemvalue="Python.ink_calculator" />
-        <item itemvalue="Python.Visualisierung" />
+        <item itemvalue="Python.plot_Netzdiagramme_Anton_Paar_Messung" />
+        <item itemvalue="Python.plot_evaporation_tests" />
+        <item itemvalue="Python.plot_evaporation_tests_2 (1)" />
+        <item itemvalue="Python.plot_evaporation_tests_3" />
       </list>
     </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-PY-262.8665.369" />
-        <option value="bundled-python-sdk-6fa658e1df1a-5bd6d13a2a75-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-262.8665.369" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.24374.152" />
+        <option value="bundled-python-sdk-c59985aa861c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.24374.152" />
       </set>
     </attachedChunks>
   </component>
@@ -340,81 +333,54 @@
       <workItem from="1783431314188" duration="2751000" />
       <workItem from="1783524045121" duration="8000" />
       <workItem from="1783688029822" duration="594000" />
-      <workItem from="1784017451813" duration="10917000" />
-      <workItem from="1784662717757" duration="546000" />
-      <workItem from="1784703478735" duration="4182000" />
-      <workItem from="1784979180149" duration="404000" />
-      <workItem from="1785065804912" duration="6778000" />
-      <workItem from="1787216173589" duration="9233000" />
-      <workItem from="1787305190941" duration="1190000" />
+      <workItem from="1784017451813" duration="11176000" />
+      <workItem from="1784641069275" duration="1949000" />
     </task>
-    <task id="LOCAL-00001" summary="Auswerteskript Kennfeld ergänzt">
+    <task id="LOCAL-00001" summary="Verdunstungsversuche im Labor Auswertung Skript ergänzt">
       <option name="closed" value="true" />
-      <created>1787153465705</created>
+      <created>1784046146467</created>
       <option name="number" value="00001" />
       <option name="presentableId" value="LOCAL-00001" />
       <option name="project" value="LOCAL" />
-      <updated>1787153465705</updated>
+      <updated>1784046146467</updated>
     </task>
-    <task id="LOCAL-00002" summary="Auswerteskript Kennfeld ergänzt">
-      <option name="closed" value="true" />
-      <created>1787153471440</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1787153471440</updated>
-    </task>
-    <task id="LOCAL-00003" summary="Evaluierungsskript für die Labormessungen ergänzt">
-      <option name="closed" value="true" />
-      <created>1787230650995</created>
-      <option name="number" value="00003" />
-      <option name="presentableId" value="LOCAL-00003" />
-      <option name="project" value="LOCAL" />
-      <updated>1787230650995</updated>
-    </task>
-    <option name="localTasksCounter" value="4" />
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Auswerteskript Kennfeld ergänzt" />
-    <MESSAGE value="Evaluierungsskript für die Labormessungen ergänzt" />
-    <option name="LAST_COMMIT_MESSAGE" value="Evaluierungsskript für die Labormessungen ergänzt" />
+    <MESSAGE value="Verdunstungsversuche im Labor Auswertung Skript ergänzt" />
+    <option name="LAST_COMMIT_MESSAGE" value="Verdunstungsversuche im Labor Auswertung Skript ergänzt" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$plot_refractive_index.coverage" NAME="plot_refractive_index Coverage Results" MODIFIED="1783070457576" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_calculator.coverage" NAME="ink_calculator Coverage Results" MODIFIED="1787218234080" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests.coverage" NAME="plot_evaporation_tests Coverage Results" MODIFIED="1784045879144" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$Doctests_in_ink_calculator.coverage" NAME="Doctests in ink_calculator Coverage Results" MODIFIED="1783431614082" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$Visualisierung.coverage" NAME="Visualisierung Coverage Results" MODIFIED="1787148405075" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kennfeld" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$plot_Netzdiagramme_Anton_Paar_Messung.coverage" NAME="plot_Netzdiagramme_Anton_Paar_Messung Coverage Results" MODIFIED="1785081214705" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_resolution_check.coverage" NAME="ink_resolution_check Coverage Results" MODIFIED="1784018335887" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$water_calc_density_speed_sound.coverage" NAME="water_calc_density_speed_sound Coverage Results" MODIFIED="1787128701319" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_calculator.coverage" NAME="ink_calculator Coverage Results" MODIFIED="1784018806302" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_simulation.coverage" NAME="ink_simulation Coverage Results" MODIFIED="1781190906243" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_histogram_resolution.coverage" NAME="plot_histogram_resolution Coverage Results" MODIFIED="1783496291710" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests_2.coverage" NAME="plot_evaporation_tests_2 Coverage Results" MODIFIED="1784026984670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$Doctests_in_ink_calculator_MG.coverage" NAME="Doctests in ink_calculator_MG Coverage Results" MODIFIED="1783436335351" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ukf_aluminium.coverage" NAME="ukf_aluminium Coverage Results" MODIFIED="1785067471433" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$help_script.coverage" NAME="help_script Coverage Results" MODIFIED="1781186738786" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$evaluation_laboratory_measurement.coverage" NAME="evaluation_laboratory_measurement Coverage Results" MODIFIED="1787232372799" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/laboratory_measurement_L-Com" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_ink_grid_sound_density.coverage" NAME="plot_ink_grid_sound_density Coverage Results" MODIFIED="1781100322409" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_calculation.coverage" NAME="density_calculation Coverage Results" MODIFIED="1780925625908" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_calculator_sound_advanced.coverage" NAME="ink_calculator_sound_advanced Coverage Results" MODIFIED="1787218313860" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$plot_ink_grid_sound_density.coverage" NAME="plot_ink_grid_sound_density Coverage Results" MODIFIED="1781182766158" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$help_script.coverage" NAME="help_script Coverage Results" MODIFIED="1781096861510" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_sensor_grids.coverage" NAME="ink_sensor_grids Coverage Results" MODIFIED="1783063411904" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_refractive_sound_speed_simulation.coverage" NAME="density_refractive_sound_speed_simulation Coverage Results" MODIFIED="1780740368178" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sim_par_ink_prop$auswertung.coverage" NAME="auswertung Coverage Results" MODIFIED="1787218474351" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kennfeld" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests_2__1_.coverage" NAME="plot_evaporation_tests_2 (1) Coverage Results" MODIFIED="1784045589058" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_refractive.coverage" NAME="ink_refractive Coverage Results" MODIFIED="1781001602990" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_calculator_MG.coverage" NAME="ink_calculator_MG Coverage Results" MODIFIED="1783436342782" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_density.coverage" NAME="ink_density Coverage Results" MODIFIED="1780992571174" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_sound_speed_simulation.coverage" NAME="density_sound_speed_simulation Coverage Results" MODIFIED="1780833781847" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests_2__1_.coverage" NAME="plot_evaporation_tests_2 (1) Coverage Results" MODIFIED="1784045589058" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sim_par_ink_prop$plot_refractive_index.coverage" NAME="plot_refractive_index Coverage Results" MODIFIED="1783070457576" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_refractive_simulation.coverage" NAME="density_refractive_simulation Coverage Results" MODIFIED="1780933000892" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_refractive.coverage" NAME="ink_refractive Coverage Results" MODIFIED="1781001602990" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_sensor_grids.coverage" NAME="ink_sensor_grids Coverage Results" MODIFIED="1783063411904" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_ink_grid_sound_density.coverage" NAME="plot_ink_grid_sound_density Coverage Results" MODIFIED="1781100322409" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_Netzdiagramme_Anton_Paar_Messung.coverage" NAME="plot_Netzdiagramme_Anton_Paar_Messung Coverage Results" MODIFIED="1785402724819" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$Doctests_in_ink_calculator_MG.coverage" NAME="Doctests in ink_calculator_MG Coverage Results" MODIFIED="1783436335351" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_density.coverage" NAME="ink_density Coverage Results" MODIFIED="1780992571174" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sim_par_ink_prop$plot_ink_grid_sound_density.coverage" NAME="plot_ink_grid_sound_density Coverage Results" MODIFIED="1781182766158" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests_2.coverage" NAME="plot_evaporation_tests_2 Coverage Results" MODIFIED="1784026984670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
+    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_calculator.coverage" NAME="ink_calculator Coverage Results" MODIFIED="1781188563988" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$Doctests_in_ink_calculator.coverage" NAME="Doctests in ink_calculator Coverage Results" MODIFIED="1783431614082" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_histogram_resolution.coverage" NAME="plot_histogram_resolution Coverage Results" MODIFIED="1783496291710" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sim_par_ink_prop$ink_simulation.coverage" NAME="ink_simulation Coverage Results" MODIFIED="1781190906243" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sim_par_ink_prop$help_script.coverage" NAME="help_script Coverage Results" MODIFIED="1781186738786" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_refractive_sound_speed_simulation.coverage" NAME="density_refractive_sound_speed_simulation Coverage Results" MODIFIED="1780740368178" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_calculator.coverage" NAME="ink_calculator Coverage Results" MODIFIED="1784018806302" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$evaluation_laboratory_measurement.coverage" NAME="evaluation_laboratory_measurement Coverage Results" MODIFIED="1787558238001" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/laboratory_measurement_L-Com" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests_3.coverage" NAME="plot_evaporation_tests_3 Coverage Results" MODIFIED="1784045355140" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_evaporation_tests.coverage" NAME="plot_evaporation_tests Coverage Results" MODIFIED="1784046087175" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plots" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$density_calculation.coverage" NAME="density_calculation Coverage Results" MODIFIED="1780925625908" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$ink_resolution_check.coverage" NAME="ink_resolution_check Coverage Results" MODIFIED="1784018335887" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/simulation_parameters_ink_properties$plot_ink_grid_refractive_density__1_.coverage" NAME="plot_ink_grid_refractive_density (1) Coverage Results" MODIFIED="1781001608102" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>
