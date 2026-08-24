@@ -6,8 +6,11 @@ mit derselben Zusammensetzung und Temperatur simuliert. Das Programm erzeugt:
 
 * model_comparison.csv       - Messwert, Simulation und Fehler je Messpunkt
 * accuracy_summary.csv       - globale Kennzahlen fuer beide Messgroessen
+* accuracy_by_sample.csv     - Kennzahlen getrennt nach ProbeNr
 * accuracy_by_composition.csv- Kennzahlen je Rezeptur
+* high_deviation_points.csv  - Messpunkte oberhalb der Fehlergrenzen
 * model_accuracy.png         - Paritaets- und Fehlerdiagramme
+* sample_plots/              - ein Vergleichsplot je ProbeNr
 
 Aufruf aus dem Repository-Hauptverzeichnis:
 
@@ -54,6 +57,20 @@ VALUE_RANGES = {
 }
 
 
+def non_negative_float(value: str) -> float:
+    number = float(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("Wert muss groesser oder gleich 0 sein.")
+    return number
+
+
+def non_negative_int(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("Wert muss groesser oder gleich 0 sein.")
+    return number
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Messwerte von Dichte und Schallgeschwindigkeit mit "
@@ -88,6 +105,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="MG-Anteil als Wasserrest behandeln. Ohne diese Option werden "
         "Rezepturen mit MG uebersprungen, da ink_calculator.py kein MG-Modell hat.",
+    )
+    parser.add_argument(
+        "--rho-outlier-threshold-pct",
+        type=non_negative_float,
+        default=0.5,
+        help="Grenze der absoluten relativen Dichteabweichung in %% (Standard: 0.5).",
+    )
+    parser.add_argument(
+        "--c-outlier-threshold-pct",
+        type=non_negative_float,
+        default=1.0,
+        help="Grenze der absoluten relativen Schallabweichung in %% (Standard: 1.0).",
+    )
+    parser.add_argument(
+        "--max-console-outliers",
+        type=non_negative_int,
+        default=20,
+        help="Maximal ausgegebene Punkte je Messgroesse; 0 zeigt alle (Standard: 20).",
     )
     return parser.parse_args()
 
@@ -342,6 +377,19 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def make_sample_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Berechnet dieselben Modellkennzahlen separat fuer jede ProbeNr."""
+    if "ProbeNr" not in df.columns:
+        return pd.DataFrame()
+
+    parts: list[pd.DataFrame] = []
+    for probe, sample in df.groupby("ProbeNr", dropna=False, sort=True):
+        metrics = make_summary(sample)
+        metrics.insert(0, "ProbeNr", probe)
+        parts.append(metrics)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
 def make_composition_summary(df: pd.DataFrame) -> pd.DataFrame:
     ok = df.loc[df["Simulation_Status"] == "ok"].copy()
     if ok.empty:
@@ -379,6 +427,110 @@ def make_composition_summary(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def identify_high_deviations(
+    df: pd.DataFrame,
+    rho_threshold_pct: float,
+    c_threshold_pct: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Markiert und extrahiert Punkte oberhalb der relativen Fehlergrenzen."""
+    result = df.copy()
+    specs = (
+        {
+            "property": "Density",
+            "unit": "kg/m^3",
+            "prefix": "Rho",
+            "measured": "Rho_M",
+            "simulated": "Rho_Sim_kg_m3",
+            "threshold": rho_threshold_pct,
+        },
+        {
+            "property": "Sound velocity",
+            "unit": "m/s",
+            "prefix": "C",
+            "measured": "C_M",
+            "simulated": "C_Sim_m_s",
+            "threshold": c_threshold_pct,
+        },
+    )
+    optional_identifiers = [
+        column
+        for column in ("ProbeNr", "Nr", "N", "Stabil", "SensOK", "Gueltig")
+        if column in result.columns
+    ]
+    identifier_columns = ["Source_File", "Source_Row"] + optional_identifiers
+    composition_columns = [
+        "T_M",
+        "Al_wt_pct",
+        "IPA_wt_pct",
+        "PG_wt_pct",
+        "Water_wt_pct",
+    ]
+    standardized_columns = [
+        "Property",
+        "Unit",
+        "Threshold_pct",
+        *identifier_columns,
+        *composition_columns,
+        "Measured",
+        "Simulated",
+        "Error_Sim_minus_Meas",
+        "Abs_Error",
+        "Rel_Error_pct",
+        "Abs_Rel_Error_pct",
+    ]
+    parts: list[pd.DataFrame] = []
+
+    for spec in specs:
+        prefix = spec["prefix"]
+        flag_column = f"{prefix}_High_Deviation"
+        mask = (
+            result["Simulation_Status"].eq("ok")
+            & result[f"{prefix}_Abs_Rel_Error_pct"].ge(spec["threshold"])
+        )
+        result[flag_column] = mask
+        selected = result.loc[
+            mask,
+            identifier_columns
+            + composition_columns
+            + [
+                spec["measured"],
+                spec["simulated"],
+                f"{prefix}_Error",
+                f"{prefix}_Abs_Error",
+                f"{prefix}_Rel_Error_pct",
+                f"{prefix}_Abs_Rel_Error_pct",
+            ],
+        ].copy()
+        if selected.empty:
+            continue
+
+        selected.insert(0, "Threshold_pct", spec["threshold"])
+        selected.insert(0, "Unit", spec["unit"])
+        selected.insert(0, "Property", spec["property"])
+        selected = selected.rename(
+            columns={
+                spec["measured"]: "Measured",
+                spec["simulated"]: "Simulated",
+                f"{prefix}_Error": "Error_Sim_minus_Meas",
+                f"{prefix}_Abs_Error": "Abs_Error",
+                f"{prefix}_Rel_Error_pct": "Rel_Error_pct",
+                f"{prefix}_Abs_Rel_Error_pct": "Abs_Rel_Error_pct",
+            }
+        )
+        parts.append(selected[standardized_columns])
+
+    if not parts:
+        return result, pd.DataFrame(columns=standardized_columns)
+
+    deviations = pd.concat(parts, ignore_index=True)
+    deviations = deviations.sort_values(
+        ["Property", "Abs_Rel_Error_pct"],
+        ascending=[True, False],
+        kind="stable",
+    ).reset_index(drop=True)
+    return result, deviations
+
+
 def _identity_limits(measured: np.ndarray, simulated: np.ndarray) -> tuple[float, float]:
     values = np.concatenate([measured, simulated])
     lower, upper = float(np.nanmin(values)), float(np.nanmax(values))
@@ -386,7 +538,11 @@ def _identity_limits(measured: np.ndarray, simulated: np.ndarray) -> tuple[float
     return lower - padding, upper + padding
 
 
-def create_plot(df: pd.DataFrame, output_path: Path) -> None:
+def create_plot(
+    df: pd.DataFrame,
+    output_path: Path,
+    figure_title: str = "Accuracy of ink_calculator.py against L-Com measurements",
+) -> None:
     ok = df.loc[df["Simulation_Status"] == "ok"].copy()
     if ok.empty:
         return
@@ -430,30 +586,88 @@ def create_plot(df: pd.DataFrame, output_path: Path) -> None:
         ax.set_title(f"{title}: error vs. temperature")
         ax.grid(alpha=0.25)
 
-    fig.suptitle("Accuracy of ink_calculator.py against L-Com measurements", fontsize=13)
+    fig.suptitle(figure_title, fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
-def write_outputs(df: pd.DataFrame, output_dir: Path) -> tuple[pd.DataFrame, list[Path]]:
+def _probe_file_label(probe: object) -> str:
+    """Erzeugt einen stabilen, dateisystemtauglichen Bezeichner fuer ProbeNr."""
+    try:
+        numeric = float(probe)
+        if np.isfinite(numeric) and numeric.is_integer():
+            return f"{int(numeric):03d}"
+    except (TypeError, ValueError):
+        pass
+    label = "".join(
+        character if character.isalnum() or character in "-_" else "_"
+        for character in str(probe)
+    ).strip("_")
+    return label or "unknown"
+
+
+def create_sample_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
+    """Erstellt fuer jede ProbeNr einen eigenen Messung-Simulation-Plot."""
+    if "ProbeNr" not in df.columns:
+        print("  WARNING: Spalte 'ProbeNr' fehlt; Einzelplots werden uebersprungen.")
+        return []
+
+    sample_dir = output_dir / "sample_plots"
+    paths: list[Path] = []
+    for probe, sample in df.groupby("ProbeNr", dropna=False, sort=True):
+        usable = sample.loc[sample["Simulation_Status"] == "ok"]
+        if usable.empty:
+            print(f"  Probe {probe}: keine simulierten Messpunkte, Plot uebersprungen.")
+            continue
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        output_path = sample_dir / f"Sample_{_probe_file_label(probe)}_model_accuracy.png"
+        create_plot(
+            usable,
+            output_path,
+            figure_title=(
+                f"Accuracy of ink_calculator.py against L-Com measurements "
+                f"- sample {probe} ({len(usable)} points)"
+            ),
+        )
+        paths.append(output_path)
+    return paths
+
+
+def write_outputs(
+    df: pd.DataFrame,
+    deviations: pd.DataFrame,
+    output_dir: Path,
+) -> tuple[pd.DataFrame, list[Path]]:
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary = make_summary(df)
+    sample_summary = make_sample_summary(df)
     composition_summary = make_composition_summary(df)
     detail_path = output_dir / "model_comparison.csv"
     summary_path = output_dir / "accuracy_summary.csv"
+    sample_summary_path = output_dir / "accuracy_by_sample.csv"
     composition_path = output_dir / "accuracy_by_composition.csv"
+    deviations_path = output_dir / "high_deviation_points.csv"
     plot_path = output_dir / "model_accuracy.png"
 
     df.to_csv(detail_path, index=False)
     summary.to_csv(summary_path, index=False)
+    sample_summary.to_csv(sample_summary_path, index=False)
     composition_summary.to_csv(composition_path, index=False)
+    deviations.to_csv(deviations_path, index=False)
     create_plot(df, plot_path)
-    outputs = [detail_path, summary_path, composition_path]
+    outputs = [
+        detail_path,
+        summary_path,
+        sample_summary_path,
+        composition_path,
+        deviations_path,
+    ]
     if plot_path.exists():
         outputs.append(plot_path)
+    outputs.extend(create_sample_plots(df, output_dir))
     return summary, outputs
 
 
@@ -475,6 +689,122 @@ def print_summary(summary: pd.DataFrame) -> None:
     print("\nHinweis: 'Accuracy' ist 100 - MAPE. Der signierte Fehler ist Simulation - Messung.")
 
 
+def _print_deviation_rows(group: pd.DataFrame, max_rows: int) -> None:
+    """Gibt die Detailzeilen einer bereits ausgewaehlten Ausreissergruppe aus."""
+    group = group.sort_values("Abs_Rel_Error_pct", ascending=False, kind="stable")
+    shown = group if max_rows == 0 else group.head(max_rows)
+    display_columns = [
+        column
+        for column in (
+            "Source_Row",
+            "Nr",
+            "T_M",
+            "Al_wt_pct",
+            "IPA_wt_pct",
+            "PG_wt_pct",
+            "Measured",
+            "Simulated",
+            "Error_Sim_minus_Meas",
+            "Abs_Rel_Error_pct",
+            "Gueltig",
+            "Stabil",
+        )
+        if column in shown.columns
+    ]
+    display = shown[display_columns].rename(
+        columns={
+            "Source_Row": "CSV_Row",
+            "T_M": "T_C",
+            "Al_wt_pct": "Al_pct",
+            "IPA_wt_pct": "IPA_pct",
+            "PG_wt_pct": "PG_pct",
+            "Error_Sim_minus_Meas": "Error",
+            "Abs_Rel_Error_pct": "AbsRel_pct",
+        }
+    )
+    with pd.option_context(
+        "display.max_columns",
+        None,
+        "display.width",
+        180,
+        "display.max_rows",
+        None,
+    ):
+        print(display.round(5).to_string(index=False))
+    if len(shown) < len(group):
+        print(
+            f"  ... {len(group) - len(shown)} weitere; vollstaendig in "
+            "high_deviation_points.csv."
+        )
+
+
+def print_sample_analyses(
+    df: pd.DataFrame,
+    deviations: pd.DataFrame,
+    max_rows: int,
+    rho_threshold_pct: float,
+    c_threshold_pct: float,
+) -> None:
+    """Gibt Kennzahlen und Ausreisser getrennt fuer jede ProbeNr aus."""
+    print("\n" + "#" * 132)
+    print("AUSWERTUNG NACH PROBE")
+    print("#" * 132)
+    if "ProbeNr" not in df.columns:
+        print("Spalte 'ProbeNr' fehlt; keine probenspezifische Auswertung moeglich.")
+        return
+
+    outlier_specs = (
+        ("Density", rho_threshold_pct),
+        ("Sound velocity", c_threshold_pct),
+    )
+    metric_columns = [
+        "Property",
+        "N",
+        "Bias_ME",
+        "MAE",
+        "RMSE",
+        "MAPE_pct",
+        "Accuracy_100_minus_MAPE_pct",
+        "R2",
+    ]
+
+    for probe, sample in df.groupby("ProbeNr", dropna=False, sort=True):
+        simulated = int(sample["Simulation_Status"].eq("ok").sum())
+        skipped = int(sample["Simulation_Status"].eq("skipped").sum())
+        failed = len(sample) - simulated - skipped
+        print("\n" + "=" * 132)
+        print(
+            f"PROBE {probe} | {simulated} simuliert, {skipped} uebersprungen, "
+            f"{failed} Simulationsfehler"
+        )
+        print("=" * 132)
+
+        metrics = make_summary(sample)
+        print("\nGenauigkeitskennzahlen")
+        print("-" * 96)
+        with pd.option_context("display.max_columns", None, "display.width", 130):
+            print(metrics[metric_columns].round(5).to_string(index=False))
+
+        print("\nAusreisser dieser Probe")
+        if "ProbeNr" in deviations.columns:
+            sample_deviations = deviations.loc[deviations["ProbeNr"].eq(probe)]
+        else:
+            sample_deviations = deviations.iloc[0:0]
+
+        for property_name, threshold in outlier_specs:
+            group = sample_deviations.loc[
+                sample_deviations["Property"].eq(property_name)
+            ]
+            print(
+                f"\n{property_name}: {len(group)} Punkt(e) mit absoluter relativer "
+                f"Abweichung >= {threshold:g} %"
+            )
+            if group.empty:
+                print("  Keine Ausreisser oberhalb dieser Grenze.")
+            else:
+                _print_deviation_rows(group, max_rows)
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -489,7 +819,12 @@ def main() -> int:
 
         calculator = load_calculator(args.tables)
         evaluated = simulate(evaluated, calculator)
-        summary, output_paths = write_outputs(evaluated, args.output)
+        evaluated, deviations = identify_high_deviations(
+            evaluated,
+            rho_threshold_pct=args.rho_outlier_threshold_pct,
+            c_threshold_pct=args.c_outlier_threshold_pct,
+        )
+        summary, output_paths = write_outputs(evaluated, deviations, args.output)
     except (FileNotFoundError, ValueError, ImportError) as exc:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 2
@@ -502,6 +837,13 @@ def main() -> int:
         f"{failed} Simulationsfehler."
     )
     print_summary(summary)
+    print_sample_analyses(
+        evaluated,
+        deviations,
+        max_rows=args.max_console_outliers,
+        rho_threshold_pct=args.rho_outlier_threshold_pct,
+        c_threshold_pct=args.c_outlier_threshold_pct,
+    )
     print("\nErzeugte Dateien:")
     for path in output_paths:
         print(f"  {path}")
