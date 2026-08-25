@@ -995,8 +995,20 @@ if __name__ == "__main__":
     #   ink.calibrate_viscosity(1.9, al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
 
 
+    # props = ink.compute(al=1.58992186889045, ipa=4.60738939720321, pg=4.92872935639588, temperature=22.61297)
+    # print(props)
+
+    # props = ink.compute(al=1.77049439892333, ipa=3.54098879784665, pg=5.48850096979773, temperature=22.6362036363636)
+    # print(props)
+
+    # props = ink.compute(al=1.81036207241448, ipa=3.62072414482897, pg=3.62072414482897, temperature=22.7694717647059)
+    # print(props)
+
+    # props = ink.compute(al=2.19014415543717, ipa=4.38028831087433, pg=4.38028831087433, temperature=22.7694717647059)
+    # print(props)
+
     props = ink.compute(al=1.58992186889045, ipa=4.60738939720321, pg=4.92872935639588, temperature=22.61297)
     print(props)
 
-    props = ink.compute(al=1.77049439892333, ipa=3.54098879784665, pg=5.48850096979773, temperature=22.6362036363636)
+    props = ink.compute(al=1.594, ipa=4.335, pg=4.943, temperature=22.61297)
     print(props)
