@@ -15,9 +15,31 @@ from the same composition (mass %) and temperature (deg C):
 
 This module merges four previously separate scripts
 (ink_density.py, ink_refractive.py, ink_sound.py, ink_viscosity.py)
-into one consistent interface. The underlying physics, formulas and
-interpolation methods of each original model are preserved unchanged,
-so results are identical to running the four scripts individually.
+into one consistent interface.
+
+Density, refractive index and viscosity use the same robust interpolation
+order: shape-preserving PCHIP over concentration first, followed by a
+local linear interpolation over temperature. Sparse temperature columns
+are ignored locally when their surrounding concentration gap is too wide.
+
+The SOUND model was revised (v3):
+    * binary tables are stored as deviations from pure water,
+      c(w, T) = c_water(T) + dc(w, T), with c_water(T) from the
+      Marczak (1997) reference curve. Sparse temperature anchors only
+      have to describe the slowly varying mixing deviation; the exact
+      water curve carries the main temperature trend. Absolute
+      calibration offsets of a data set (e.g. the 0% anchor of
+      pg_sound.csv, 1498.0 vs. the true 1496.69 m/s) cancel out.
+    * concentration interpolation uses the best-supported reference
+      column (normally 25 C) and shape-preserving PCHIP.
+    * the concentration-dependent temperature coefficient is fitted
+      separately from CSV rows with actual multi-temperature values.
+      Sparse 20 C columns can no longer create a fictitious low-
+      concentration curve across a large internal data gap.
+    * internal concentration gaps are detected and reported as model
+      warnings instead of being mistaken for fully supported data.
+    * additive calibration:  ink.calibrate_sound(measured_c, ...)
+    * quick sanity checks:   ink.sound_calc.self_test()
 
 ---------------------------------------------------------------------
 REQUIRED DATA FILES  (folder: tables_parameters)
@@ -49,13 +71,11 @@ Convention: water is the remainder, water = 100 - al - ipa - pg.
 
 import os
 import re
-import csv
-import bisect
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, PchipInterpolator
 
 
 # =====================================================================
@@ -64,8 +84,250 @@ from scipy.interpolate import interp1d
 RHO_WATER = 0.998       # g/cm3  (~20-25 C)
 RHO_IPA = 0.785         # g/cm3
 RHO_PG = 1.036          # g/cm3
-RHO_PIGMENT = 2.700     # g/cm3   bulk aluminum; encapsulated may be lower
+RHO_PIGMENT = 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
 BULK_MODULUS_ALUMINUM = 76.0e9   # Pa   (compressibility beta_Al = 1 / K_Al)
+
+
+# =====================================================================
+#  Shared interpolation for density, refractive index and viscosity
+# =====================================================================
+@dataclass(frozen=True)
+class TableInterpolationResult:
+    """Value and diagnostics returned by a tabulated-property lookup."""
+
+    value: float
+    temperatures_used: tuple
+    concentration_outside: bool = False
+    temperature_outside: bool = False
+    weak_local_support: bool = False
+
+
+class PchipTemperatureTable:
+    """Robust interpolation of a sparse concentration/temperature CSV.
+
+    Interpolation order is always:
+
+        1. shape-preserving PCHIP over mass percent in each usable column,
+        2. local linear interpolation over temperature.
+
+    A temperature column is considered usable only when its largest internal
+    concentration gap does not exceed ``max_local_gap_wt_pct`` and the target
+    concentration lies inside its measured range. This stable, column-level
+    quality decision avoids discontinuities that would otherwise occur when
+    a sparse curve switches on and off across concentration. It also prevents
+    a column with, for example, only 0 and 52 wt% in the operating range from
+    overriding two nearby, well-supported temperature curves.
+
+    Duplicate concentrations are combined by their median. Non-numeric and
+    missing cells are ignored. Concentrations outside a column are clamped;
+    temperature extrapolation uses the nearest local slope and is limited to
+    ``max_temperature_extrapolation_C`` beyond the supported range.
+    """
+
+    def __init__(self, path, prefix, max_local_gap_wt_pct=20.0,
+                 max_temperature_extrapolation_C=10.0,
+                 minimum_value=None):
+        self.path = str(path)
+        self.prefix = prefix
+        self.max_local_gap_wt_pct = float(max_local_gap_wt_pct)
+        self.max_temperature_extrapolation_C = float(
+            max_temperature_extrapolation_C)
+        self.minimum_value = minimum_value
+
+        frame = pd.read_csv(path)
+        if "Mass_Percent" not in frame.columns:
+            raise ValueError(f"'{path}' has no 'Mass_Percent' column.")
+
+        mass_percent = pd.to_numeric(
+            frame["Mass_Percent"], errors="coerce")
+        pattern = re.compile(rf"{re.escape(prefix)}_(\d+(?:\.\d+)?)C")
+        self.columns = {}
+
+        for column_name in frame.columns:
+            match = pattern.fullmatch(column_name)
+            if not match:
+                continue
+            temperature = float(match.group(1))
+            values = pd.to_numeric(frame[column_name], errors="coerce")
+            valid = np.isfinite(mass_percent) & np.isfinite(values)
+            if valid.sum() < 2:
+                continue
+
+            points = pd.DataFrame({
+                "mass_percent": mass_percent[valid].astype(float),
+                "value": values[valid].astype(float),
+            })
+            points = (points.groupby("mass_percent", as_index=False)["value"]
+                      .median().sort_values("mass_percent"))
+            x = points["mass_percent"].to_numpy(float)
+            y = points["value"].to_numpy(float)
+            if len(x) < 2 or np.any(np.diff(x) <= 0.0):
+                continue
+            if minimum_value is not None and np.any(y <= minimum_value):
+                raise ValueError(
+                    f"'{path}', column '{column_name}' contains values "
+                    f"<= {minimum_value}.")
+
+            self.columns[temperature] = {
+                "x": x,
+                "y": y,
+                "interp": PchipInterpolator(x, y, extrapolate=False),
+                "max_gap": float(np.max(np.diff(x))),
+            }
+
+        if not self.columns:
+            raise ValueError(
+                f"'{path}' has no usable '{prefix}_XXC' columns with at "
+                "least two finite values.")
+
+        self.available_temps = sorted(self.columns)
+        self.well_supported_temps = [
+            temperature for temperature in self.available_temps
+            if (self.columns[temperature]["max_gap"]
+                <= self.max_local_gap_wt_pct)
+        ]
+        if not self.well_supported_temps:
+            self.well_supported_temps = list(self.available_temps)
+        self.mp_min = min(float(column["x"][0])
+                          for column in self.columns.values())
+        self.mp_max = max(float(column["x"][-1])
+                          for column in self.columns.values())
+
+    @staticmethod
+    def _enclosing_gap(points, value):
+        points = np.asarray(points, dtype=float)
+        if points.size == 0 or value < points[0] or value > points[-1]:
+            return np.inf
+        position = int(np.searchsorted(points, value))
+        if (position < len(points)
+                and np.isclose(points[position], value, atol=1e-10)):
+            adjacent_gaps = []
+            if position > 0:
+                adjacent_gaps.append(points[position] - points[position - 1])
+            if position + 1 < len(points):
+                adjacent_gaps.append(points[position + 1] - points[position])
+            return float(max(adjacent_gaps)) if adjacent_gaps else np.inf
+        if position == 0 or position == len(points):
+            return np.inf
+        return float(points[position] - points[position - 1])
+
+    def _is_locally_supported(self, temperature, mass_percent):
+        if temperature not in self.well_supported_temps:
+            return False
+        gap = self._enclosing_gap(
+            self.columns[temperature]["x"], mass_percent)
+        return gap <= self.max_local_gap_wt_pct
+
+    def locally_supported_temperatures(self, mass_percent):
+        return [
+            temperature for temperature in self.available_temps
+            if self._is_locally_supported(temperature, mass_percent)
+        ]
+
+    def _column_value(self, temperature, mass_percent):
+        column = self.columns[temperature]
+        concentration = float(np.clip(
+            mass_percent, column["x"][0], column["x"][-1]))
+        return float(column["interp"](concentration))
+
+    @staticmethod
+    def _temperature_pair(temperatures, target_temperature):
+        temperatures = sorted(temperatures)
+        exact = [temperature for temperature in temperatures
+                 if np.isclose(temperature, target_temperature, atol=1e-10)]
+        if exact:
+            return (exact[0],)
+        if len(temperatures) == 1:
+            return (temperatures[0],)
+
+        lower = [temperature for temperature in temperatures
+                 if temperature < target_temperature]
+        upper = [temperature for temperature in temperatures
+                 if temperature > target_temperature]
+        if lower and upper:
+            return (lower[-1], upper[0])
+        if lower:
+            return (lower[-2], lower[-1])
+        return (upper[0], upper[1])
+
+    def evaluate(self, mass_percent, temperature):
+        mass_percent = float(mass_percent)
+        temperature = float(temperature)
+        if not np.isfinite(mass_percent) or not np.isfinite(temperature):
+            raise ValueError("Concentration and temperature must be finite.")
+
+        concentration_outside = not self.mp_in_range(mass_percent)
+        supported = self.locally_supported_temperatures(mass_percent)
+        weak_support = not supported
+
+        if not supported:
+            supported = [
+                t for t in self.available_temps
+                if (self.columns[t]["x"][0] <= mass_percent
+                    <= self.columns[t]["x"][-1])
+            ]
+        if not supported:
+            supported = list(self.available_temps)
+
+        temperatures_used = self._temperature_pair(supported, temperature)
+        temperature_outside = not (
+            supported[0] <= temperature <= supported[-1])
+
+        values = [self._column_value(t, mass_percent)
+                  for t in temperatures_used]
+        if len(temperatures_used) == 1:
+            value = values[0]
+        else:
+            t_low, t_high = temperatures_used
+            effective_temperature = float(np.clip(
+                temperature,
+                supported[0] - self.max_temperature_extrapolation_C,
+                supported[-1] + self.max_temperature_extrapolation_C,
+            ))
+            fraction = ((effective_temperature - t_low)
+                        / (t_high - t_low))
+            value = values[0] + fraction * (values[1] - values[0])
+
+        if self.minimum_value is not None:
+            value = max(float(value), np.nextafter(
+                float(self.minimum_value), np.inf))
+
+        weak_support = weak_support or any(
+            not self._is_locally_supported(t, mass_percent)
+            for t in temperatures_used)
+        return TableInterpolationResult(
+            value=float(value),
+            temperatures_used=tuple(temperatures_used),
+            concentration_outside=concentration_outside,
+            temperature_outside=temperature_outside,
+            weak_local_support=weak_support,
+        )
+
+    def value(self, mass_percent, temperature):
+        return self.evaluate(mass_percent, temperature).value
+
+    def temp_in_range(self, temperature):
+        return self.available_temps[0] <= temperature <= self.available_temps[-1]
+
+    def mp_in_range(self, mass_percent):
+        return self.mp_min <= mass_percent <= self.mp_max
+
+    def support_warnings(self, mass_percent, temperature):
+        result = self.evaluate(mass_percent, temperature)
+        warnings = []
+        if result.concentration_outside:
+            warnings.append(
+                f"concentration {mass_percent:.2f} wt% is outside the "
+                f"table range {self.mp_min:g}-{self.mp_max:g} wt%")
+        if result.weak_local_support:
+            warnings.append(
+                f"weak local concentration support near "
+                f"{mass_percent:.2f} wt%")
+        if result.temperature_outside:
+            warnings.append(
+                f"temperature {temperature:.2f} C is outside the locally "
+                "supported temperature range")
+        return warnings
 
 
 # =====================================================================
@@ -84,35 +346,22 @@ class InkDensityCalculator:
 
     def __init__(self, tables_dir="tables_parameters"):
         self.tables_dir = tables_dir
-        self.interpolators = {'IPA': {}, 'PG': {}}
+        self.tables = {'IPA': None, 'PG': None}
         self._load_tables()
 
     def _load_tables(self):
-        """Load CSV files and build the concentration interpolators."""
-        ipa_path = os.path.join(self.tables_dir, "ipa_density.csv")
-        pg_path = os.path.join(self.tables_dir, "pg_density.csv")
-
-        # IPA table (e.g. 20C and 30C) -> linear in concentration
-        if os.path.exists(ipa_path):
-            df_ipa = pd.read_csv(ipa_path)
-            self.interpolators['IPA']['20C'] = interp1d(
-                df_ipa['Mass_Percent'], df_ipa['Density_20C'], kind='linear')
-            self.interpolators['IPA']['30C'] = interp1d(
-                df_ipa['Mass_Percent'], df_ipa['Density_30C'], kind='linear')
-        else:
-            print(f"Warning: '{ipa_path}' not found. IPA density calculations will fail.")
-
-        # PG table (e.g. 20C, 25C, 30C) -> cubic in concentration
-        if os.path.exists(pg_path):
-            df_pg = pd.read_csv(pg_path)
-            self.interpolators['PG']['20C'] = interp1d(
-                df_pg['Mass_Percent'], df_pg['Density_20C'], kind='cubic')
-            self.interpolators['PG']['25C'] = interp1d(
-                df_pg['Mass_Percent'], df_pg['Density_25C'], kind='cubic')
-            self.interpolators['PG']['30C'] = interp1d(
-                df_pg['Mass_Percent'], df_pg['Density_30C'], kind='cubic')
-        else:
-            print(f"Warning: '{pg_path}' not found. PG density calculations will fail.")
+        """Load all available density columns from both binary tables."""
+        for solvent, filename in (("IPA", "ipa_density.csv"),
+                                  ("PG", "pg_density.csv")):
+            path = os.path.join(self.tables_dir, filename)
+            try:
+                self.tables[solvent] = PchipTemperatureTable(
+                    path, "Density", max_local_gap_wt_pct=20.0,
+                    max_temperature_extrapolation_C=10.0,
+                    minimum_value=0.0,
+                )
+            except (FileNotFoundError, ValueError) as error:
+                print(f"Warning: {solvent} density table not loaded ({error}).")
 
     def get_liquid_density(self, solvent_type, mass_percent, target_temp=25):
         """
@@ -121,40 +370,15 @@ class InkDensityCalculator:
 
         :param solvent_type: 'IPA' or 'PG'
         :param mass_percent: solvent mass percent within the liquid phase
-        :param target_temp:  temperature in Celsius (20 .. 30)
+        :param target_temp:  temperature in Celsius
         """
-        if not (20 <= target_temp <= 30):
-            raise ValueError("Target temperature must be between 20 C and 30 C.")
-
-        funcs = self.interpolators[solvent_type]
-
-        if solvent_type == 'IPA':
-            dens_20 = float(funcs['20C'](mass_percent))
-            dens_30 = float(funcs['30C'](mass_percent))
-            slope = (dens_30 - dens_20) / (30 - 20)
-            return dens_20 + slope * (target_temp - 20)
-
-        elif solvent_type == 'PG':
-            dens_20 = float(funcs['20C'](mass_percent))
-            dens_25 = float(funcs['25C'](mass_percent))
-            dens_30 = float(funcs['30C'](mass_percent))
-
-            if target_temp == 20:
-                return dens_20
-            if target_temp == 25:
-                return dens_25
-            if target_temp == 30:
-                return dens_30
-
-            if 20 < target_temp < 25:
-                slope = (dens_25 - dens_20) / (25 - 20)
-                return dens_20 + slope * (target_temp - 20)
-            else:  # 25 < target_temp < 30
-                slope = (dens_30 - dens_25) / (30 - 25)
-                return dens_25 + slope * (target_temp - 25)
-
-        else:
+        if solvent_type not in self.tables:
             raise ValueError(f"Unknown solvent type: {solvent_type}")
+        table = self.tables[solvent_type]
+        if table is None:
+            raise ValueError(
+                f"Missing {solvent_type} density table in '{self.tables_dir}'.")
+        return table.value(mass_percent, target_temp)
 
     def calculate_density(self, pct_al, pct_ipa=0.0, pct_pg=0.0, target_temp=25):
         """
@@ -228,7 +452,7 @@ class InkRefractiveCalculator:
 
     def __init__(self, tables_dir="tables_parameters", density_calculator=None):
         self.tables_dir = tables_dir
-        self.interpolators = {'IPA': {}, 'PG': {}}
+        self.tables = {'IPA': None, 'PG': None}
 
         # density calculator is required for the Gladstone-Dale step
         if density_calculator is None:
@@ -239,59 +463,51 @@ class InkRefractiveCalculator:
         self._load_tables()
 
     def _load_tables(self):
-        """Load refractive-index CSV files and build interpolators."""
-        ipa_path = os.path.join(self.tables_dir, "ipa_refractive.csv")
-        pg_path = os.path.join(self.tables_dir, "pg_refractive.csv")
-
-        # IPA: single empirical anchor (25C)
-        if os.path.exists(ipa_path):
-            df_ipa = pd.read_csv(ipa_path)
-            self.interpolators['IPA']['25C'] = interp1d(
-                df_ipa['Mass_Percent'], df_ipa['Refractive_25C'], kind='cubic')
-        else:
-            print(f"Warning: '{ipa_path}' not found. IPA optical calculations will fail.")
-
-        # PG: two empirical anchors (22C and 25C)
-        if os.path.exists(pg_path):
-            df_pg = pd.read_csv(pg_path)
-            self.interpolators['PG']['22C'] = interp1d(
-                df_pg['Mass_Percent'], df_pg['Refractive_22C'], kind='cubic')
-            self.interpolators['PG']['25C'] = interp1d(
-                df_pg['Mass_Percent'], df_pg['Refractive_25C'], kind='cubic')
-        else:
-            print(f"Warning: '{pg_path}' not found. PG optical calculations will fail.")
+        """Load all available refractive-index temperature columns."""
+        for solvent, filename in (("IPA", "ipa_refractive.csv"),
+                                  ("PG", "pg_refractive.csv")):
+            path = os.path.join(self.tables_dir, filename)
+            try:
+                self.tables[solvent] = PchipTemperatureTable(
+                    path, "Refractive", max_local_gap_wt_pct=20.0,
+                    max_temperature_extrapolation_C=10.0,
+                    minimum_value=0.0,
+                )
+            except (FileNotFoundError, ValueError) as error:
+                print(
+                    f"Warning: {solvent} refractive table not loaded "
+                    f"({error}).")
 
     def get_liquid_refractive_index(self, solvent_type, mass_percent, target_temp=25):
         """
-        Refractive index (nD) of a binary liquid (Water + solvent) at any
-        temperature. IPA is corrected with a thermo-optic coefficient
-        (dn/dT); PG is interpolated/extrapolated from its two anchors.
+        Refractive index (nD) of a binary liquid (Water + solvent).
+
+        With two or more measured temperature columns, PCHIP is evaluated
+        over concentration first and the result is interpolated locally and
+        linearly over temperature. With only one temperature column, a
+        concentration-dependent thermo-optic coefficient is used as a
+        documented fallback.
         """
-        funcs = self.interpolators[solvent_type]
-
-        if solvent_type == 'IPA':
-            n_25 = float(funcs['25C'](mass_percent))
-            if target_temp == 25:
-                return n_25
-            # thermo-optic coefficients (per degC): water ~ -1e-4, IPA ~ -4e-4
-            dn_dt_water = -0.00010
-            dn_dt_ipa = -0.00040
-            dn_dt_mix = dn_dt_water + (mass_percent / 100.0) * (dn_dt_ipa - dn_dt_water)
-            delta_t = target_temp - 25.0
-            return n_25 + (dn_dt_mix * delta_t)
-
-        elif solvent_type == 'PG':
-            temps = [22, 25]
-            n_vals = [
-                float(funcs['22C'](mass_percent)),
-                float(funcs['25C'](mass_percent)),
-            ]
-            temp_interpolator = interp1d(
-                temps, n_vals, kind='linear', fill_value='extrapolate')
-            return float(temp_interpolator(target_temp))
-
-        else:
+        if solvent_type not in self.tables:
             raise ValueError(f"Unknown solvent type: {solvent_type}")
+        table = self.tables[solvent_type]
+        if table is None:
+            raise ValueError(
+                f"Missing {solvent_type} refractive table in "
+                f"'{self.tables_dir}'.")
+
+        if len(table.available_temps) >= 2:
+            return table.value(mass_percent, target_temp)
+
+        reference_temperature = table.available_temps[0]
+        reference_value = table.value(mass_percent, reference_temperature)
+        dn_dt_water = -0.00010
+        dn_dt_solvent = {"IPA": -0.00040, "PG": -0.00038}[solvent_type]
+        fraction = float(np.clip(mass_percent, 0.0, 100.0)) / 100.0
+        dn_dt_mix = dn_dt_water + fraction * (
+            dn_dt_solvent - dn_dt_water)
+        return reference_value + dn_dt_mix * (
+            target_temp - reference_temperature)
 
     def calculate_refractive_index(self, pct_al=0.0, pct_ipa=0.0, pct_pg=0.0, target_temp=25):
         """
@@ -299,17 +515,17 @@ class InkRefractiveCalculator:
         solvents directly and applies the Gladstone-Dale pseudo-binary
         approximation when IPA and PG coexist.
         """
-        # NEU: Wir berechnen die wahre Wassermenge unter Einbezug von Aluminium
+        # Determine the actual water fraction including the aluminum mass.
         pct_water = 100.0 - pct_al - pct_ipa - pct_pg
         if pct_water < 0:
             raise ValueError("Total mass percentage exceeds 100%. Check your inputs.")
 
-        # Masse der reinen flüssigen Phase
+        # Total mass of the liquid phase.
         pct_liquid_total = pct_ipa + pct_pg + pct_water
         if pct_liquid_total <= 0:
             return 1.0  # Fallback
 
-        # Wahre Konzentrationen der Lösungsmittel IN der Flüssigphase
+        # Solvent concentrations within the liquid phase.
         ipa_in_liq = (pct_ipa / pct_liquid_total) * 100.0
         pg_in_liq = (pct_pg / pct_liquid_total) * 100.0
         water_in_liq = (pct_water / pct_liquid_total) * 100.0
@@ -365,66 +581,337 @@ class InkRefractiveCalculator:
 #  3) SOUND-VELOCITY MODEL   (ported from ink_sound.py)
 # ====================================================================
 # =====================================================================
+# ---------------------------------------------------------------------
+#  Reference curve: speed of sound in pure water at atmospheric pressure
+#  Anchor values from Marczak (1997), J. Acoust. Soc. Am. 102(5),
+#  2776-2779 (accuracy of the underlying equation: < 0.05 m/s).
+# ---------------------------------------------------------------------
+_WATER_SOUND_T = np.array(
+    [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0])
+_WATER_SOUND_C = np.array(
+    [1402.39, 1426.15, 1447.27, 1465.93, 1482.34, 1496.69,
+     1509.13, 1519.81, 1528.86, 1536.43, 1542.57])
+_WATER_SOUND_INTERP = PchipInterpolator(
+    _WATER_SOUND_T, _WATER_SOUND_C, extrapolate=True)
+
+
+def water_sound_velocity(temperature_C):
+    """Speed of sound in pure water [m/s] (Marczak 1997 anchors, PCHIP).
+    Intended range 0..50 C; extrapolated smoothly outside."""
+    return float(_WATER_SOUND_INTERP(temperature_C))
+
+
 class _PropertyTable:
-    """
-    Loads a CSV with a 'Mass_Percent' column and one or more
-    '<prefix>_<temp>C' columns and provides value(mass_percent, temp)
-    by interpolating over concentration, then over temperature.
+    """Interpolation of sparse concentration/temperature property tables.
+
+    Density tables use shape-preserving concentration curves followed by
+    linear temperature interpolation. Sound tables (``reference`` supplied)
+    use the more robust v3 construction
+
+        c(w, T) = c_water(T) + dc_ref(w) + (T - T_ref) * k_T(w)
+
+    where ``dc_ref`` is taken from the best-supported reference column
+    (normally 25 C) and ``k_T`` is estimated only from rows that contain at
+    least two actual temperature measurements. Large internal concentration
+    gaps therefore no longer masquerade as fully supported data.
     """
 
-    def __init__(self, path, prefix):
+    MAX_LOCAL_GAP_WT_PCT = 12.0
+    MAX_ABS_DEVIATION_SLOPE = 5.0  # m/s/K; safety bound for sparse source data
+    MAX_LOCAL_SLOPE_M_S_PER_WT_PCT = 12.0
+    MIN_SPIKE_RESIDUAL_M_S = 8.0
+
+    @classmethod
+    def _remove_isolated_spikes(cls, mass_percent, values):
+        """Remove sharp one-point reversals caused by conflicting source rows.
+
+        The merged PG table contains near-duplicate concentrations from
+        different sources (for example around 31 and 80 wt%). A point is
+        removed only if it forms a strong local direction reversal and lies
+        far from the straight line between its neighbours.
+        """
+        x = np.asarray(mass_percent, dtype=float)
+        y = np.asarray(values, dtype=float)
+        keep = list(range(len(x)))
+        changed = True
+        while changed and len(keep) >= 4:
+            changed = False
+            for position in range(1, len(keep) - 1):
+                left, center, right = keep[position - 1:position + 2]
+                slope_left = (y[center] - y[left]) / (x[center] - x[left])
+                slope_right = (y[right] - y[center]) / (x[right] - x[center])
+                if slope_left * slope_right >= 0:
+                    continue
+                predicted = y[left] + (y[right] - y[left]) * (
+                    (x[center] - x[left]) / (x[right] - x[left])
+                )
+                residual = abs(y[center] - predicted)
+                if (
+                    max(abs(slope_left), abs(slope_right))
+                    > cls.MAX_LOCAL_SLOPE_M_S_PER_WT_PCT
+                    and residual > cls.MIN_SPIKE_RESIDUAL_M_S
+                ):
+                    del keep[position]
+                    changed = True
+                    break
+        return x[keep], y[keep]
+
+    def __init__(self, path, prefix, reference=None):
         self.path = path
         self.prefix = prefix
-        df = pd.read_csv(path)
-
-        if "Mass_Percent" not in df.columns:
+        self.reference = reference
+        raw = pd.read_csv(path)
+        if "Mass_Percent" not in raw.columns:
             raise ValueError(f"'{path}' has no 'Mass_Percent' column.")
+        raw["Mass_Percent"] = pd.to_numeric(
+            raw["Mass_Percent"], errors="coerce")
+        for column_name in raw.columns[1:]:
+            raw[column_name] = pd.to_numeric(
+                raw[column_name], errors="coerce")
+        raw = raw[np.isfinite(raw["Mass_Percent"])].copy()
+        if raw.empty:
+            raise ValueError(f"'{path}' has no finite concentrations.")
 
-        mp_full = df["Mass_Percent"].to_numpy(dtype=float)
-        order = np.argsort(mp_full)
-        mp_full = mp_full[order]
-
-        self.mp_min, self.mp_max = float(mp_full.min()), float(mp_full.max())
-
-        self.temps = {}
+        # Median aggregation makes repeated source concentrations harmless.
+        df = (raw.groupby("Mass_Percent", as_index=False).median(numeric_only=True)
+              .sort_values("Mass_Percent").reset_index(drop=True))
+        self.mp_full = df["Mass_Percent"].to_numpy(dtype=float)
+        self.df = df
+        self.columns = {}
+        self.column_names = {}
         pattern = re.compile(rf"{prefix}_(\d+(?:\.\d+)?)C")
+
         for col in df.columns:
-            m = pattern.fullmatch(col)
-            if m:
-                t = float(m.group(1))
-                y_full = df[col].to_numpy(dtype=float)[order]
+            match = pattern.fullmatch(col)
+            if not match:
+                continue
+            temperature = float(match.group(1))
+            y_full = df[col].to_numpy(dtype=float)
+            valid = np.isfinite(y_full)
+            mp_valid = self.mp_full[valid]
+            y_valid = y_full[valid]
+            if len(mp_valid) < 2:
+                continue
+            if self.reference is not None and len(mp_valid) >= 4:
+                mp_valid, y_valid = self._remove_isolated_spikes(mp_valid, y_valid)
 
-                # NEU: Filtere leere Zellen (NaN) für diese spezifische Spalte heraus
-                valid_mask = ~np.isnan(y_full)
-                mp_valid = mp_full[valid_mask]
-                y_valid = y_full[valid_mask]
+            interp = PchipInterpolator(mp_valid, y_valid, extrapolate=False)
+            derivative = interp.derivative()
+            offset = 0.0
+            if self.reference is not None:
+                if mp_valid[0] <= 0.0 <= mp_valid[-1]:
+                    offset = float(interp(0.0))
+                else:
+                    offset = float(self.reference(temperature))
 
-                # Überspringe die Spalte komplett, falls sie gar keine Daten enthält
-                if len(mp_valid) == 0:
-                    continue
+            self.columns[temperature] = {
+                "interp": interp,
+                "mp": mp_valid,
+                "y": y_valid,
+                "mp_min": float(mp_valid[0]),
+                "mp_max": float(mp_valid[-1]),
+                "y_lo": float(y_valid[0]),
+                "y_hi": float(y_valid[-1]),
+                "d_lo": float(derivative(mp_valid[0])),
+                "d_hi": float(derivative(mp_valid[-1])),
+                "offset": offset,
+            }
+            self.column_names[temperature] = col
 
-                # Bestimme die Interpolationsmethode anhand der GÜLTIGEN Datenpunkte
-                kind = "cubic" if len(mp_valid) >= 4 else "linear"
-
-                self.temps[t] = interp1d(
-                    mp_valid, y_valid, kind=kind, bounds_error=False, fill_value="extrapolate")
-
-        if not self.temps:
+        if not self.columns:
             raise ValueError(f"'{path}' has no valid '{prefix}_XXC' columns.")
-        self.available_temps = sorted(self.temps)
+
+        self.available_temps = sorted(self.columns)
+        self.mp_min = min(column["mp_min"] for column in self.columns.values())
+        self.mp_max = max(column["mp_max"] for column in self.columns.values())
+        self.ref_temp = 25.0 if 25.0 in self.columns else min(
+            self.columns,
+            key=lambda temperature: (
+                -(len(self.columns[temperature]["mp"])),
+                abs(temperature - 25.0),
+            ),
+        )
+
+        self.temp_slope_mp = np.array([], dtype=float)
+        self.temp_slope_values = np.array([], dtype=float)
+        self.temp_slope_interp = None
+        if self.reference is not None:
+            self._build_deviation_temperature_slope()
+
+    @staticmethod
+    def _enclosing_gap(points, value):
+        """Width of the measured concentration interval surrounding value."""
+        points = np.asarray(points, dtype=float)
+        if points.size == 0 or value < points[0] or value > points[-1]:
+            return np.inf
+        position = int(np.searchsorted(points, value))
+        if position < len(points) and np.isclose(points[position], value, atol=1e-10):
+            return 0.0
+        if position == 0 or position == len(points):
+            return np.inf
+        return float(points[position] - points[position - 1])
+
+    def _col_value(self, temperature, mass_percent):
+        """One concentration curve, with bounded linear edge continuation."""
+        column = self.columns[temperature]
+        if mass_percent < column["mp_min"]:
+            value = column["y_lo"] + column["d_lo"] * (
+                mass_percent - column["mp_min"]
+            )
+        elif mass_percent > column["mp_max"]:
+            value = column["y_hi"] + column["d_hi"] * (
+                mass_percent - column["mp_max"]
+            )
+        else:
+            value = float(column["interp"](mass_percent))
+        return value - column["offset"]
+
+    def _row_deviation_slope(self, row_index):
+        """Local d(dc)/dT at T_ref from actual values in one CSV row."""
+        samples = []
+        for temperature in self.available_temps:
+            raw = self.df.at[row_index, self.column_names[temperature]]
+            if pd.notna(raw):
+                samples.append(
+                    (temperature, float(raw) - self.columns[temperature]["offset"])
+                )
+        if len(samples) < 2:
+            return None
+
+        samples.sort()
+        temperatures = np.array([item[0] for item in samples], dtype=float)
+        deviations = np.array([item[1] for item in samples], dtype=float)
+        reference_index = np.flatnonzero(np.isclose(temperatures, self.ref_temp))
+
+        if reference_index.size:
+            index = int(reference_index[0])
+            if 0 < index < len(samples) - 1:
+                slope = (deviations[index + 1] - deviations[index - 1]) / (
+                    temperatures[index + 1] - temperatures[index - 1]
+                )
+            elif index < len(samples) - 1:
+                slope = (deviations[index + 1] - deviations[index]) / (
+                    temperatures[index + 1] - temperatures[index]
+                )
+            else:
+                slope = (deviations[index] - deviations[index - 1]) / (
+                    temperatures[index] - temperatures[index - 1]
+                )
+        else:
+            position = int(np.searchsorted(temperatures, self.ref_temp))
+            if 0 < position < len(samples):
+                lo, hi = position - 1, position
+            elif position == 0:
+                lo, hi = 0, 1
+            else:
+                lo, hi = len(samples) - 2, len(samples) - 1
+            slope = (deviations[hi] - deviations[lo]) / (
+                temperatures[hi] - temperatures[lo]
+            )
+        return float(
+            np.clip(
+                slope,
+                -self.MAX_ABS_DEVIATION_SLOPE,
+                self.MAX_ABS_DEVIATION_SLOPE,
+            )
+        )
+
+    def _build_deviation_temperature_slope(self):
+        """Build k_T(w) only from rows with real multi-temperature data."""
+        concentrations = []
+        slopes = []
+        for row_index, mass_percent in enumerate(self.mp_full):
+            slope = self._row_deviation_slope(row_index)
+            if slope is not None and np.isfinite(slope):
+                concentrations.append(float(mass_percent))
+                slopes.append(slope)
+
+        if not concentrations:
+            return
+        table = pd.DataFrame({"mp": concentrations, "slope": slopes})
+        table = table.groupby("mp", as_index=False)["slope"].median().sort_values("mp")
+        self.temp_slope_mp = table["mp"].to_numpy(float)
+        self.temp_slope_values = table["slope"].to_numpy(float)
+        if len(table) >= 2:
+            self.temp_slope_interp = PchipInterpolator(
+                self.temp_slope_mp,
+                self.temp_slope_values,
+                extrapolate=False,
+            )
+
+    def _temperature_slope(self, mass_percent):
+        if self.temp_slope_interp is None:
+            return 0.0
+        concentration = float(
+            np.clip(mass_percent, self.temp_slope_mp[0], self.temp_slope_mp[-1])
+        )
+        return float(self.temp_slope_interp(concentration))
+
+    def temps_covering(self, mass_percent):
+        """Temperatures with locally supported concentration data."""
+        return [
+            temperature
+            for temperature in self.available_temps
+            if self._enclosing_gap(self.columns[temperature]["mp"], mass_percent)
+            <= self.MAX_LOCAL_GAP_WT_PCT
+        ]
+
+    def covering_temp_range(self, mass_percent):
+        temperatures = self.temps_covering(mass_percent)
+        if not temperatures:
+            return self.ref_temp, self.ref_temp
+        return temperatures[0], temperatures[-1]
+
+    def support_warnings(self, mass_percent, temperature):
+        """Human-readable diagnostics for weakly supported sound predictions."""
+        if self.reference is None:
+            return []
+        warnings_out = []
+        reference_gap = self._enclosing_gap(
+            self.columns[self.ref_temp]["mp"], mass_percent
+        )
+        if reference_gap > self.MAX_LOCAL_GAP_WT_PCT:
+            warnings_out.append(
+                f"reference concentration curve has an internal gap of "
+                f"{reference_gap:.1f} wt% near {mass_percent:.1f} wt%"
+            )
+        slope_gap = self._enclosing_gap(self.temp_slope_mp, mass_percent)
+        if slope_gap > self.MAX_LOCAL_GAP_WT_PCT:
+            warnings_out.append(
+                f"temperature-slope curve has an internal gap of "
+                f"{slope_gap:.1f} wt% near {mass_percent:.1f} wt%"
+            )
+        t_low, t_high = self.covering_temp_range(mass_percent)
+        if not (t_low <= temperature <= t_high):
+            warnings_out.append(
+                f"temperature {temperature:.1f} C is outside locally supported "
+                f"anchors {t_low:g}-{t_high:g} C at {mass_percent:.1f} wt%"
+            )
+        return warnings_out
 
     def value(self, mass_percent, temperature):
-        """Interpolated property at the given mass percent and temperature."""
-        vals = np.array(
-            [float(self.temps[t](mass_percent)) for t in self.available_temps])
-        if temperature in self.temps:
-            return float(self.temps[temperature](mass_percent))
-        if len(self.available_temps) == 1:
-            return float(vals[0])
-        temp_interp = interp1d(
-            self.available_temps, vals, kind="linear",
-            bounds_error=False, fill_value="extrapolate")
-        return float(temp_interp(temperature))
+        if self.reference is None:
+            values = np.array(
+                [self._col_value(t, mass_percent) for t in self.available_temps],
+                dtype=float,
+            )
+            if len(self.available_temps) == 1:
+                return float(values[0])
+            temperature_interpolator = interp1d(
+                self.available_temps,
+                values,
+                kind="linear",
+                bounds_error=False,
+                fill_value="extrapolate",
+            )
+            return float(temperature_interpolator(temperature))
+
+        base = float(self.reference(temperature))
+        concentration_deviation = self._col_value(self.ref_temp, mass_percent)
+        temperature_correction = (
+            temperature - self.ref_temp
+        ) * self._temperature_slope(mass_percent)
+        return base + concentration_deviation + temperature_correction
 
     def temp_in_range(self, temperature):
         return self.available_temps[0] <= temperature <= self.available_temps[-1]
@@ -441,6 +928,7 @@ class SoundResult:
     temperature: float             # C
     composition: dict              # {'Al':.., 'IPA':.., 'PG':.., 'Water':..}
     vol_fraction_al: float = 0.0   # phi_Al (-)
+    calibration_offset: float = 0.0  # additive offset [m/s] included in sound_velocity
     warnings: list = field(default_factory=list)
 
 
@@ -453,6 +941,14 @@ class InkSoundCalculator:
     converted back via Newton-Laplace:  c = 1 / sqrt(rho * beta).
     The solid pigment is added with the Wood/Urick effective-medium
     equation; beta_Al comes from the bulk modulus K_Al.
+
+    v3: the binary sound tables are evaluated as deviations from the
+    Marczak pure-water reference curve (see _PropertyTable), which
+    removes absolute offsets of the data sets' own water anchors. The
+    concentration curve and its temperature coefficient are modelled
+    separately so internal gaps in sparse columns cannot dominate the
+    operating range.
+    An additive calibration offset [m/s] can be set via calibrate().
     """
 
     DENSITY_ALUMINUM = RHO_PIGMENT          # g/cm3
@@ -462,6 +958,7 @@ class InkSoundCalculator:
         self.tables_dir = tables_dir
         self.density = {"IPA": None, "PG": None}
         self.sound = {"IPA": None, "PG": None}
+        self.calibration_offset = 0.0        # additive, m/s
         self._load("IPA", "ipa_density.csv", "ipa_sound.csv")
         self._load("PG", "pg_density.csv", "pg_sound.csv")
 
@@ -469,11 +966,16 @@ class InkSoundCalculator:
         dpath = os.path.join(self.tables_dir, density_file)
         spath = os.path.join(self.tables_dir, sound_file)
         try:
-            self.density[solvent] = _PropertyTable(dpath, "Density")
+            self.density[solvent] = PchipTemperatureTable(
+                dpath, "Density", max_local_gap_wt_pct=20.0,
+                max_temperature_extrapolation_C=10.0,
+                minimum_value=0.0,
+            )
         except (FileNotFoundError, ValueError) as e:
             print(f"Note: {solvent} density table not loaded ({e}).")
         try:
-            self.sound[solvent] = _PropertyTable(spath, "SoundVelocity")
+            self.sound[solvent] = _PropertyTable(
+                spath, "SoundVelocity", reference=water_sound_velocity)
         except (FileNotFoundError, ValueError) as e:
             print(f"Note: {solvent} sound table not loaded ({e}).")
 
@@ -496,10 +998,11 @@ class InkSoundCalculator:
             warnings.append(
                 f"{solvent} concentration {pct_in_liquid:.1f}% is outside the "
                 f"tabulated range -> extrapolated.")
-        if not dtab.temp_in_range(temperature) or not stab.temp_in_range(temperature):
-            warnings.append(
-                f"Temperature {temperature:.1f} C is outside the tabulated "
-                f"range -> extrapolated.")
+
+        for issue in stab.support_warnings(pct_in_liquid, temperature):
+            warnings.append(f"{solvent} sound: {issue}.")
+        for issue in dtab.support_warnings(pct_in_liquid, temperature):
+            warnings.append(f"{solvent} density: {issue}.")
 
         rho_L = dtab.value(pct_in_liquid, temperature)     # g/cm3
         c_L = stab.value(pct_in_liquid, temperature)       # m/s
@@ -555,7 +1058,7 @@ class InkSoundCalculator:
         V_total = sum(v for v, _, _ in phases)
         rho_mix_si = sum((v / V_total) * rho for v, rho, _ in phases)
         beta_mix = sum((v / V_total) * beta for v, _, beta in phases)
-        c_mix = 1.0 / np.sqrt(rho_mix_si * beta_mix)
+        c_mix = float(1.0 / np.sqrt(rho_mix_si * beta_mix)) + self.calibration_offset
 
         vol_al = (pct_al / self.DENSITY_ALUMINUM) if pct_al > 0 else 0.0
         phi_al = vol_al / V_total
@@ -571,12 +1074,88 @@ class InkSoundCalculator:
             temperature=temperature,
             composition={"Al": pct_al, "IPA": pct_ipa, "PG": pct_pg, "Water": pct_water},
             vol_fraction_al=phi_al,
+            calibration_offset=self.calibration_offset,
             warnings=warnings,
         )
 
     def sound_velocity(self, pct_al, pct_ipa=0.0, pct_pg=0.0, temperature=25.0):
         """Return only the sound velocity in m/s."""
         return self.calculate(pct_al, pct_ipa, pct_pg, temperature).sound_velocity
+
+    def calibrate(self, measured_velocity, pct_al, pct_ipa=0.0, pct_pg=0.0,
+                  temperature=25.0):
+        """
+        Set the additive calibration offset [m/s] so the model reproduces
+        a measured sound velocity exactly at the given state point.
+        Returns the offset (measured - model).
+        """
+        self.calibration_offset = 0.0
+        base = self.calculate(pct_al, pct_ipa, pct_pg, temperature).sound_velocity
+        self.calibration_offset = measured_velocity - base
+        return self.calibration_offset
+
+    def self_test(self, verbose=True):
+        """
+        Quick sanity checks of the sound model. Returns a list of issue
+        strings (empty list = all checks passed). Checks:
+          1. solvent-free limit reproduces the pure-water reference,
+          2. continuity of c over temperature (no interpolation jumps),
+          3. continuity of c over concentration.
+        Runs with the calibration offset temporarily set to zero.
+        """
+        issues = []
+        saved_offset = self.calibration_offset
+        self.calibration_offset = 0.0
+        try:
+            # 1) water limit vs. Marczak reference
+            for T in (15.0, 20.0, 22.0, 25.0, 30.0, 35.0):
+                c = self.sound_velocity(0.0, 0.0, 0.0, T)
+                ref = water_sound_velocity(T)
+                if abs(c - ref) > 0.2:
+                    issues.append(
+                        f"water limit at {T:g} C: model {c:.2f} vs. "
+                        f"reference {ref:.2f} m/s (|d| > 0.2).")
+
+            # 2) continuity over temperature (max ~6 m/s per K allowed)
+            for (al, ipa, pg) in ((1.82, 3.64, 3.64), (0.0, 25.0, 0.0),
+                                  (0.0, 0.0, 35.0), (0.0, 8.0, 0.0)):
+                prev = None
+                for T in np.arange(16.0, 32.001, 0.25):
+                    c = self.sound_velocity(al, ipa, pg, float(T))
+                    if prev is not None and abs(c - prev) > 1.5:
+                        issues.append(
+                            f"T-scan jump at Al={al} IPA={ipa} PG={pg}, "
+                            f"T={T:.2f} C: dc={c - prev:+.1f} m/s per 0.25 K.")
+                        break
+                    prev = c
+
+            # 3) continuity over concentration (incl. column boundaries)
+            for T in (20.0, 23.0):
+                for solvent in ("IPA", "PG"):
+                    prev = None
+                    for w in np.arange(0.0, 60.001, 0.5):
+                        ipa = float(w) if solvent == "IPA" else 0.0
+                        pg = float(w) if solvent == "PG" else 0.0
+                        c = self.sound_velocity(0.0, ipa, pg, T)
+                        if prev is not None and abs(c - prev) > 8.0:
+                            issues.append(
+                                f"{solvent} concentration scan jump at "
+                                f"{w:.1f}%, T={T:g} C: dc={c - prev:+.1f} "
+                                f"m/s per 0.5%.")
+                            break
+                        prev = c
+        finally:
+            self.calibration_offset = saved_offset
+
+        if verbose:
+            if issues:
+                print(f"Sound self-test: {len(issues)} issue(s) found:")
+                for msg in issues:
+                    print(f"  ! {msg}")
+            else:
+                print("Sound self-test: all checks passed "
+                      "(water limit, T- and concentration continuity).")
+        return issues
 
 
 # =====================================================================
@@ -585,49 +1164,20 @@ class InkSoundCalculator:
 # ====================================================================
 # =====================================================================
 def _load_viscosity_table(path):
-    """Read a viscosity CSV and return a dict of support points (stdlib only)."""
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        header = next(reader)
-        temps = [float(h.replace("Viscosity_", "").rstrip("Cc")) for h in header[1:]]
-        mass_percent, eta = [], []
-        for row in reader:
-            if not row:
-                continue
-            mass_percent.append(float(row[0]))
-            eta.append([float(v) for v in row[1:]])
-    order = sorted(range(len(mass_percent)), key=lambda i: mass_percent[i])
-    mass_percent = [mass_percent[i] for i in order]
-    eta = [eta[i] for i in order]
-    return {"temps": temps, "mass_percent": mass_percent, "eta": eta, "path": path}
-
-
-def _interp_1d(xs, ys, x):
-    """Linear interpolation. Returns (value, out_of_range); clamps at edges."""
-    if x <= xs[0]:
-        return ys[0], (x < xs[0] - 1e-9)
-    if x >= xs[-1]:
-        return ys[-1], (x > xs[-1] + 1e-9)
-    i = bisect.bisect_right(xs, x)
-    x0, x1 = xs[i - 1], xs[i]
-    y0, y1 = ys[i - 1], ys[i]
-    t = (x - x0) / (x1 - x0)
-    return y0 + t * (y1 - y0), False
+    """Load a positive viscosity table for PCHIP/linear interpolation."""
+    return PchipTemperatureTable(
+        path, "Viscosity", max_local_gap_wt_pct=20.0,
+        max_temperature_extrapolation_C=10.0,
+        minimum_value=0.0,
+    )
 
 
 def _interp_viscosity_table(table, mass_percent, temperature_C):
-    """Bilinear interpolation in (mass percent, temperature)."""
-    temps = table["temps"]
-    mps = table["mass_percent"]
-    grid = table["eta"]
-    eta_vs_T, mp_oob = [], False
-    for j in range(len(temps)):
-        col = [grid[i][j] for i in range(len(mps))]
-        val, oob = _interp_1d(mps, col, mass_percent)
-        eta_vs_T.append(val)
-        mp_oob = mp_oob or oob
-    eta, t_oob = _interp_1d(temps, eta_vs_T, temperature_C)
-    return eta, mp_oob, t_oob
+    """PCHIP over concentration, then local linear interpolation over T."""
+    result = table.evaluate(mass_percent, temperature_C)
+    concentration_issue = (
+        result.concentration_outside or result.weak_local_support)
+    return result.value, concentration_issue, result.temperature_outside
 
 
 class InkViscosityModel:
@@ -722,16 +1272,30 @@ class InkViscosityModel:
         pg_bin = 100.0 * m_p / (m_p + m_w) if (m_p + m_w) > 0 else 0.0
 
         eta_w, t_oob_w = self.water_viscosity(temperature_C)
-        eta_wi, mp_oob_i, t_oob_i = _interp_viscosity_table(self.ipa, ipa_bin, temperature_C)
-        eta_wp, mp_oob_p, t_oob_p = _interp_viscosity_table(self.pg, pg_bin, temperature_C)
+        if m_i > 0.0:
+            eta_wi, mp_oob_i, t_oob_i = _interp_viscosity_table(
+                self.ipa, ipa_bin, temperature_C)
+        else:
+            eta_wi, mp_oob_i, t_oob_i = eta_w, False, t_oob_w
+        if m_p > 0.0:
+            eta_wp, mp_oob_p, t_oob_p = _interp_viscosity_table(
+                self.pg, pg_bin, temperature_C)
+        else:
+            eta_wp, mp_oob_p, t_oob_p = eta_w, False, t_oob_w
 
         if t_oob_w or t_oob_i or t_oob_p:
-            warnings.append(f"Temperature {temperature_C} C outside the table range "
-                            f"-- clamped to the edge.")
+            warnings.append(
+                f"Temperature {temperature_C} C is outside the locally "
+                "supported viscosity range -- bounded local linear "
+                "extrapolation was used.")
         if mp_oob_i:
-            warnings.append(f"IPA pseudo-fraction {ipa_bin:.2f} % outside the IPA table.")
+            warnings.append(
+                f"IPA pseudo-fraction {ipa_bin:.2f} % is outside or weakly "
+                "supported by the IPA viscosity table.")
         if mp_oob_p:
-            warnings.append(f"PG pseudo-fraction {pg_bin:.2f} % outside the PG table.")
+            warnings.append(
+                f"PG pseudo-fraction {pg_bin:.2f} % is outside or weakly "
+                "supported by the PG viscosity table.")
 
         eta_carrier = eta_wi * eta_wp / eta_w
 
@@ -859,7 +1423,10 @@ class InkCalculator:
 
     The aluminum / IPA / PG mass percentages are given explicitly and
     water is taken as the remainder (water = 100 - al - ipa - pg), unless
-    an explicit ``water`` value is supplied.
+    an explicit ``water`` value is supplied. ``rho_pigment`` is the
+    intrinsic/effective density of one pigment particle, not the loose or
+    tapped packing density of a powder bed. It is applied consistently to
+    density, sound and viscosity calculations.
 
         ink = InkCalculator(tables_dir="tables_parameters")
         print(ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25.0))
@@ -871,12 +1438,16 @@ class InkCalculator:
                  intrinsic_viscosity=2.5, phi_max=0.63,
                  rho_pigment=RHO_PIGMENT):
         self.tables_dir = tables_dir
+        if rho_pigment <= 0.0:
+            raise ValueError("rho_pigment must be positive.")
 
         # one shared density calculator (reused by the optical model)
         self.density_calc = InkDensityCalculator(tables_dir=tables_dir)
+        self.density_calc.DENSITY_ALUMINUM = float(rho_pigment)
         self.refractive_calc = InkRefractiveCalculator(
             tables_dir=tables_dir, density_calculator=self.density_calc)
         self.sound_calc = InkSoundCalculator(tables_dir=tables_dir)
+        self.sound_calc.DENSITY_ALUMINUM = float(rho_pigment)
         self.viscosity_model = InkViscosityModel(
             tables_dir=tables_dir,
             suspension_model=suspension_model,
@@ -888,33 +1459,53 @@ class InkCalculator:
 
     # ---- helpers -----------------------------------------------------
     @staticmethod
-    def _water_remainder(al, ipa, pg, water):
+    def _validate_state(al, ipa, pg, temperature):
+        values = {"Al": al, "IPA": ipa, "PG": pg,
+                  "temperature": temperature}
+        if not all(np.isfinite(value) for value in values.values()):
+            raise ValueError("Composition and temperature must be finite.")
+        if min(al, ipa, pg) < 0.0:
+            raise ValueError("Mass percentages must be non-negative.")
+        if al + ipa + pg > 100.0 + 1e-9:
+            raise ValueError(
+                f"Al + IPA + PG = {al + ipa + pg:.3f}% exceeds 100%.")
+
+    @classmethod
+    def _water_remainder(cls, al, ipa, pg, water, temperature=25.0):
+        cls._validate_state(al, ipa, pg, temperature)
         if water is None:
             water = 100.0 - al - ipa - pg
-        if water < -1e-9:
+        if not np.isfinite(water) or water < -1e-9:
+            raise ValueError("Water mass percentage must be finite and non-negative.")
+        if abs(al + ipa + pg + water - 100.0) > 1e-6:
             raise ValueError(
-                f"Al + IPA + PG = {al + ipa + pg:.3f}% exceeds 100% (water would be negative).")
+                "Explicit Al + IPA + PG + water must sum to 100 mass %."
+            )
         return max(water, 0.0)
 
     # ---- individual properties --------------------------------------
     def density(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
         """Ink density [g/cm3]."""
+        self._validate_state(al, ipa, pg, temperature)
         return self.density_calc.calculate_density(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
     def refractive_index(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
         """Refractive index (nD) of the liquid matrix (pigment excluded)."""
+        self._validate_state(al, ipa, pg, temperature)
         return self.refractive_calc.calculate_refractive_index(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
     def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
         """Sound velocity [m/s]."""
+        self._validate_state(al, ipa, pg, temperature)
         return self.sound_calc.sound_velocity(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature)
 
     def viscosity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, water=None):
         """Ink viscosity [mPa.s]."""
-        water = self._water_remainder(al, ipa, pg, water)
+        water = self._water_remainder(
+            al, ipa, pg, water, temperature=temperature)
         return self.viscosity_model.estimate(
             water=water, ipa=ipa, pg=pg, aluminum=al,
             temperature_C=temperature, verbose=False)["viscosity_mPas"]
@@ -925,7 +1516,8 @@ class InkCalculator:
         Compute all four properties at once and return an InkProperties
         object (printable). Water is the remainder unless given explicitly.
         """
-        water = self._water_remainder(al, ipa, pg, water)
+        water = self._water_remainder(
+            al, ipa, pg, water, temperature=temperature)
         warnings = []
         details = {}
 
@@ -966,10 +1558,112 @@ class InkCalculator:
     def calibrate_viscosity(self, measured_viscosity, al, ipa, pg,
                             temperature=25.0, water=None):
         """Anchor the viscosity model to a measured value (sets its calibration factor)."""
-        water = self._water_remainder(al, ipa, pg, water)
+        water = self._water_remainder(
+            al, ipa, pg, water, temperature=temperature)
         return self.viscosity_model.calibrate(
             measured_viscosity, water=water, ipa=ipa, pg=pg,
             aluminum=al, temperature_C=temperature)
+
+    def calibrate_sound(self, measured_velocity, al, ipa=0.0, pg=0.0,
+                        temperature=25.0):
+        """
+        Anchor the sound model to a measured value (sets its additive
+        offset in m/s). Returns the offset (measured - model).
+        """
+        return self.sound_calc.calibrate(
+            measured_velocity, pct_al=al, pct_ipa=ipa, pct_pg=pg,
+            temperature=temperature)
+
+    # ---- pigment-paste mode -----------------------------------------
+    @staticmethod
+    def paste_composition(paste, ipa=0.0, pg=0.0,
+                          solids_fraction=0.20,
+                          ipa_fraction=0.40, pg_fraction=0.40,
+                          rho_particle=2.20):
+        """
+        Convert a pigment-PASTE dosage [mass %] into effective model
+        inputs. Defaults match the internal composition of ECOLEAF
+        SL 120:  20 % encapsulated Al pigment + 40 % IPA + 40 % PG.
+        (Consistent with the SDS: PG is not hazardous, hence absent
+        from SDS section 3 but present in its DNEL/PNEC tables;
+        IPA 30-50 %; total VOC 81 % ~ IPA + PG.)
+
+        Mapping:
+          * the encapsulated pigment (metal + shell) is one particle
+            phase with density rho_particle (estimate ~2.2 g/cm3;
+            determinable exactly from a measured paste density via
+            1/rho_paste = solids/rho_p + w_IPA/rho_IPA + w_PG/rho_PG).
+            The exact value has little effect at phi < 1 vol-%.
+          * carrier IPA and PG go into the liquid phase.
+          * any unassigned mass fraction of the paste is treated as
+            water (for SL 120 the fractions sum to 1, so none).
+
+        For an older PG-free paste (e.g. the Anton Paar trial inks) use
+        ipa_fraction=0.80, pg_fraction=0.0.
+
+        The standard ink (1 part paste + 10 parts water) is
+        paste = 100/11 = 9.0909 %  ->  1.818 % Al, 3.636 % IPA,
+        3.636 % PG, 90.909 % water.
+
+        Returns a dict: {'al', 'ipa', 'pg', 'rho_particle'}.
+        """
+        if min(solids_fraction, ipa_fraction, pg_fraction) < 0:
+            raise ValueError("Paste fractions must be non-negative.")
+        if solids_fraction + ipa_fraction + pg_fraction > 1.0 + 1e-9:
+            raise ValueError("Paste fractions must not exceed 1 in total.")
+        if rho_particle <= 0:
+            raise ValueError("rho_particle must be positive.")
+
+        return {"al": paste * solids_fraction,
+                "ipa": ipa + paste * ipa_fraction,
+                "pg": pg + paste * pg_fraction,
+                "rho_particle": rho_particle}
+
+    def compute_from_paste(self, paste, ipa=0.0, pg=0.0, temperature=25.0,
+                           solids_fraction=0.20,
+                           ipa_fraction=0.40, pg_fraction=0.40,
+                           rho_particle=2.20):
+        """
+        Compute all four properties for an ink specified via pigment-
+        PASTE dosage (see paste_composition). The effective particle
+        density (encapsulated pigment) is applied consistently to the
+        density, sound and viscosity models for this call. The particle
+        bulk modulus is left at K_Al; at phi < 1 vol-% the resulting
+        error in c is < 0.5 m/s.
+
+        Example (standard ink, 1 part SL 120 + 10 parts water):
+            props = ink.compute_from_paste(paste=100.0 / 11.0)
+        """
+        comp = self.paste_composition(
+            paste, ipa=ipa, pg=pg, solids_fraction=solids_fraction,
+            ipa_fraction=ipa_fraction, pg_fraction=pg_fraction,
+            rho_particle=rho_particle)
+
+        saved = (self.density_calc.DENSITY_ALUMINUM,
+                 self.sound_calc.DENSITY_ALUMINUM,
+                 self.viscosity_model.rho_pigment)
+        self.density_calc.DENSITY_ALUMINUM = comp["rho_particle"]
+        self.sound_calc.DENSITY_ALUMINUM = comp["rho_particle"]
+        self.viscosity_model.rho_pigment = comp["rho_particle"]
+        try:
+            props = self.compute(al=comp["al"], ipa=comp["ipa"],
+                                 pg=comp["pg"], temperature=temperature)
+        finally:
+            (self.density_calc.DENSITY_ALUMINUM,
+             self.sound_calc.DENSITY_ALUMINUM,
+             self.viscosity_model.rho_pigment) = saved
+
+        props.details["paste"] = {
+            "paste_pct": paste,
+            "solids_fraction": solids_fraction,
+            "ipa_fraction": ipa_fraction,
+            "pg_fraction": pg_fraction,
+            "effective_particle_pct": comp["al"],
+            "ipa_from_paste_pct": paste * ipa_fraction,
+            "pg_from_paste_pct": paste * pg_fraction,
+            "rho_particle": comp["rho_particle"],
+        }
+        return props
 
 
 # =====================================================================
@@ -994,21 +1688,12 @@ if __name__ == "__main__":
     # anchor the viscosity estimate to a measured value:
     #   ink.calibrate_viscosity(1.9, al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
 
+    # anchor the sound model to a measured value (additive offset, m/s):
+    #   ink.calibrate_sound(1542.1, al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
 
-    # props = ink.compute(al=1.58992186889045, ipa=4.60738939720321, pg=4.92872935639588, temperature=22.61297)
-    # print(props)
+    # quick sanity check of the sound model (water limit + continuity):
+    ink.sound_calc.self_test(verbose=True)
+    print()
 
-    # props = ink.compute(al=1.77049439892333, ipa=3.54098879784665, pg=5.48850096979773, temperature=22.6362036363636)
-    # print(props)
-
-    # props = ink.compute(al=1.81036207241448, ipa=3.62072414482897, pg=3.62072414482897, temperature=22.7694717647059)
-    # print(props)
-
-    # props = ink.compute(al=2.19014415543717, ipa=4.38028831087433, pg=4.38028831087433, temperature=22.7694717647059)
-    # print(props)
-
-    props = ink.compute(al=1.58992186889045, ipa=4.60738939720321, pg=4.92872935639588, temperature=22.61297)
-    print(props)
-
-    props = ink.compute(al=1.594, ipa=4.335, pg=4.943, temperature=22.61297)
+    props = ink.compute(al=1.8128, ipa=3.6256, pg=3.6256, temperature=23.66)
     print(props)
