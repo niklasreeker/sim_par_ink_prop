@@ -3,7 +3,8 @@ ink_calculator.py
 =====================================================================
 Unified property calculator for a waterborne aluminum-pigment ink:
 
-        encapsulated Al pigment  +  Water  +  IPA (2-propanol)  +  PG (propane-1,2-diol)
+        encapsulated Al pigment + Water + IPA (2-propanol)
+        + PG (propane-1,2-diol) + optional methyl gallate (MG)
 
 A single, reusable entry point that computes four physical properties
 from the same composition (mass %) and temperature (deg C):
@@ -57,16 +58,26 @@ QUICK START
     ink = InkCalculator(tables_dir="tables_parameters")
 
     # all four properties at once:
-    props = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
+    props = ink.compute(
+        al=1.814, ipa=3.628, pg=3.628, mg=0.227, temperature=25.0)
     print(props)
 
     # or each property on its own (returns a plain number):
-    rho  = ink.density(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
+    rho  = ink.density(
+        al=1.814, ipa=3.628, pg=3.628, mg=0.227, temperature=25.0)
     n_d  = ink.refractive_index(ipa=3.64, pg=3.64, temperature=25.0)
-    c    = ink.sound_velocity(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
+    c    = ink.sound_velocity(
+        al=1.814, ipa=3.628, pg=3.628, mg=0.227, temperature=25.0)
     eta  = ink.viscosity(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
 
-Convention: water is the remainder, water = 100 - al - ipa - pg.
+Convention: water is the remainder,
+water = 100 - al - ipa - pg - mg.
+
+MG density is represented by an experimentally fitted apparent density
+in solution. The currently available measurements do not establish a
+reproducible direct MG contribution to sound velocity. Consequently, MG
+replaces the same mass of water in the sound-model reference state, but
+no additional MG sound correction is applied.
 """
 
 import os
@@ -85,6 +96,7 @@ RHO_WATER = 0.998       # g/cm3  (~20-25 C)
 RHO_IPA = 0.785         # g/cm3
 RHO_PG = 1.036          # g/cm3
 RHO_PIGMENT = 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
+RHO_MG_APPARENT = 1.440  # g/cm3   fitted apparent MG density in this ink system
 BULK_MODULUS_ALUMINUM = 76.0e9   # Pa   (compressibility beta_Al = 1 / K_Al)
 
 
@@ -337,12 +349,17 @@ class PchipTemperatureTable:
 # =====================================================================
 class InkDensityCalculator:
     """
-    Theoretical density of an ink made of Aluminum pigment, Water, IPA
-    and/or PG. Uses empirical binary density tables to account for the
-    volume contraction of real solvent/water mixtures.
+    Theoretical density of an ink made of aluminum pigment, water, IPA,
+    PG and optional methyl gallate. Empirical binary density tables
+    account for the volume contraction of real solvent/water mixtures.
+
+    MG is introduced by replacing the same mass of water in the reference
+    mixture. Its volume is calculated with an experimentally fitted
+    apparent density rather than the crystalline solid density.
     """
 
     DENSITY_ALUMINUM = RHO_PIGMENT   # g/cm3
+    DENSITY_MG_APPARENT = RHO_MG_APPARENT  # g/cm3
 
     def __init__(self, tables_dir="tables_parameters"):
         self.tables_dir = tables_dir
@@ -380,10 +397,12 @@ class InkDensityCalculator:
                 f"Missing {solvent_type} density table in '{self.tables_dir}'.")
         return table.value(mass_percent, target_temp)
 
-    def calculate_density(self, pct_al, pct_ipa=0.0, pct_pg=0.0, target_temp=25):
+    def _calculate_without_mg(self, pct_al, pct_ipa=0.0, pct_pg=0.0,
+                              target_temp=25):
         """
-        Total ink density [g/cm3]. Handles single solvents directly and
-        applies the pseudo-binary approximation when IPA and PG coexist.
+        Reference density [g/cm3] with any later MG mass represented as
+        water. Handles single solvents directly and applies the
+        pseudo-binary approximation when IPA and PG coexist.
 
         :param pct_al:  mass percent aluminum pigment
         :param pct_ipa: mass percent isopropanol
@@ -435,6 +454,60 @@ class InkDensityCalculator:
         else:
             rho_water = self.get_liquid_density('IPA', 0.0, target_temp)
             return 1.0 / (term_al + ((pct_water / 100.0) / rho_water))
+
+    def calculate_density(self, pct_al, pct_ipa=0.0, pct_pg=0.0,
+                          target_temp=25, pct_mg=0.0):
+        """
+        Total ink density [g/cm3], including optional methyl gallate.
+
+        The reference calculation treats the MG mass as water. The final
+        specific volume then replaces that water mass by MG using its
+        apparent density in solution:
+
+            1/rho = 1/rho_ref + x_MG * (1/rho_MG,app - 1/rho_water)
+
+        ``pct_mg`` is the MG mass percentage in the final ink. The default
+        value of zero reproduces the original model exactly.
+
+        :param pct_al: mass percent aluminum pigment
+        :param pct_ipa: mass percent isopropanol
+        :param pct_pg: mass percent propylene glycol
+        :param target_temp: temperature in Celsius
+        :param pct_mg: mass percent methyl gallate
+        """
+        values = (pct_al, pct_ipa, pct_pg, pct_mg, target_temp)
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("Composition and temperature must be finite.")
+        if min(pct_al, pct_ipa, pct_pg, pct_mg) < 0.0:
+            raise ValueError("Mass percentages must be non-negative.")
+        total_non_water = pct_al + pct_ipa + pct_pg + pct_mg
+        if total_non_water > 100.0 + 1e-9:
+            raise ValueError(
+                f"Al + IPA + PG + MG = {total_non_water:.3f}% exceeds 100%.")
+        if self.DENSITY_MG_APPARENT <= 0.0:
+            raise ValueError("Apparent MG density must be positive.")
+
+        rho_reference = self._calculate_without_mg(
+            pct_al=pct_al,
+            pct_ipa=pct_ipa,
+            pct_pg=pct_pg,
+            target_temp=target_temp,
+        )
+        if pct_mg == 0.0:
+            return rho_reference
+
+        rho_water = self.get_liquid_density('IPA', 0.0, target_temp)
+        x_mg = pct_mg / 100.0
+        inverse_density = (
+            1.0 / rho_reference
+            + x_mg * (
+                1.0 / self.DENSITY_MG_APPARENT
+                - 1.0 / rho_water
+            )
+        )
+        if inverse_density <= 0.0:
+            raise ValueError("MG volume correction produced an invalid density.")
+        return 1.0 / inverse_density
 
 
 # =====================================================================
@@ -926,7 +999,7 @@ class SoundResult:
     sound_velocity: float          # m/s
     density: float                 # g/cm3 (from the Wood/Urick mixing)
     temperature: float             # C
-    composition: dict              # {'Al':.., 'IPA':.., 'PG':.., 'Water':..}
+    composition: dict              # {'Al', 'IPA', 'PG', 'MG', 'Water'} in mass %
     vol_fraction_al: float = 0.0   # phi_Al (-)
     calibration_offset: float = 0.0  # additive offset [m/s] included in sound_velocity
     warnings: list = field(default_factory=list)
@@ -934,7 +1007,7 @@ class SoundResult:
 
 class InkSoundCalculator:
     """
-    Sound velocity of an Al-pigment / Water / IPA / PG ink.
+    Sound velocity of an Al-pigment / Water / IPA / PG / MG ink.
 
     Sound velocity cannot be mixed linearly. Instead density (rho) and
     adiabatic compressibility (beta) are mixed over volume fractions and
@@ -949,6 +1022,13 @@ class InkSoundCalculator:
     separately so internal gaps in sparse columns cannot dominate the
     operating range.
     An additive calibration offset [m/s] can be set via calibrate().
+
+    The available paired measurements do not show a reproducible direct
+    MG sound contribution. MG therefore replaces the same mass of water
+    in the reported composition, while the acoustic reference state uses
+    that mass as water. No unverified MG bulk modulus or compressibility
+    is introduced. This assumption can be replaced later if controlled
+    MG dose measurements establish a stable acoustic response.
     """
 
     DENSITY_ALUMINUM = RHO_PIGMENT          # g/cm3
@@ -1012,15 +1092,24 @@ class InkSoundCalculator:
         vol = mass_liquid / rho_L                          # cm3 (100-g basis)
         return (vol, rho_si, beta)
 
-    def calculate(self, pct_al, pct_ipa=0.0, pct_pg=0.0, temperature=25.0):
-        """Compute sound velocity (and Wood-model density) of the ink -> SoundResult."""
-        pct_water = 100.0 - pct_al - pct_ipa - pct_pg
-        if pct_al < 0 or pct_ipa < 0 or pct_pg < 0:
+    def calculate(self, pct_al, pct_ipa=0.0, pct_pg=0.0, temperature=25.0,
+                  pct_mg=0.0):
+        """Compute sound velocity (and Wood-model density) -> SoundResult."""
+        pct_water = 100.0 - pct_al - pct_ipa - pct_pg - pct_mg
+        values = (pct_al, pct_ipa, pct_pg, pct_mg, temperature)
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("Composition and temperature must be finite.")
+        if min(pct_al, pct_ipa, pct_pg, pct_mg) < 0.0:
             raise ValueError("Mass percentages must be non-negative.")
         if pct_water < -1e-9:
             raise ValueError(
-                f"Al + IPA + PG = {pct_al + pct_ipa + pct_pg:.3f}% exceeds 100%.")
+                f"Al + IPA + PG + MG = "
+                f"{pct_al + pct_ipa + pct_pg + pct_mg:.3f}% exceeds 100%.")
         pct_water = max(pct_water, 0.0)
+
+        # The direct MG acoustic effect is currently set to zero. Therefore,
+        # the acoustic reference mixture replaces MG by the same mass of water.
+        pct_water_acoustic = pct_water + pct_mg
 
         warnings = []
         beta_al = 1.0 / self.BULK_MODULUS_ALUMINUM
@@ -1033,21 +1122,21 @@ class InkSoundCalculator:
 
         # assemble the liquid phase(s)
         if pct_ipa > 0 and pct_pg == 0:                         # IPA only
-            phases.append(self._binary_phase("IPA", pct_ipa, pct_water,
+            phases.append(self._binary_phase("IPA", pct_ipa, pct_water_acoustic,
                                              temperature, warnings))
         elif pct_pg > 0 and pct_ipa == 0:                       # PG only
-            phases.append(self._binary_phase("PG", pct_pg, pct_water,
+            phases.append(self._binary_phase("PG", pct_pg, pct_water_acoustic,
                                              temperature, warnings))
         elif pct_ipa > 0 and pct_pg > 0:                        # IPA + PG (pseudo-binary)
             total_solvent = pct_ipa + pct_pg
-            water_ipa = pct_water * (pct_ipa / total_solvent)
-            water_pg = pct_water * (pct_pg / total_solvent)
+            water_ipa = pct_water_acoustic * (pct_ipa / total_solvent)
+            water_pg = pct_water_acoustic * (pct_pg / total_solvent)
             phases.append(self._binary_phase("IPA", pct_ipa, water_ipa,
                                              temperature, warnings))
             phases.append(self._binary_phase("PG", pct_pg, water_pg,
                                              temperature, warnings))
         else:                                                   # water (+ Al) only
-            phases.append(self._binary_phase("IPA", 0.0, pct_water,
+            phases.append(self._binary_phase("IPA", 0.0, pct_water_acoustic,
                                              temperature, warnings))
 
         phases = [p for p in phases if p is not None]
@@ -1067,30 +1156,45 @@ class InkSoundCalculator:
             warnings.append(
                 "Al > 5 % : Wood/Urick is a dilute-suspension model; "
                 "accuracy may degrade at high pigment loading.")
+        if pct_mg > 0.30:
+            warnings.append(
+                "MG > 0.30 % is outside the currently measured MG range; "
+                "the zero direct sound-effect assumption is extrapolated.")
 
         return SoundResult(
             sound_velocity=c_mix,
             density=rho_mix_si / 1000.0,
             temperature=temperature,
-            composition={"Al": pct_al, "IPA": pct_ipa, "PG": pct_pg, "Water": pct_water},
+            composition={
+                "Al": pct_al,
+                "IPA": pct_ipa,
+                "PG": pct_pg,
+                "MG": pct_mg,
+                "Water": pct_water,
+            },
             vol_fraction_al=phi_al,
             calibration_offset=self.calibration_offset,
             warnings=warnings,
         )
 
-    def sound_velocity(self, pct_al, pct_ipa=0.0, pct_pg=0.0, temperature=25.0):
+    def sound_velocity(self, pct_al, pct_ipa=0.0, pct_pg=0.0,
+                       temperature=25.0, pct_mg=0.0):
         """Return only the sound velocity in m/s."""
-        return self.calculate(pct_al, pct_ipa, pct_pg, temperature).sound_velocity
+        return self.calculate(
+            pct_al, pct_ipa, pct_pg, temperature, pct_mg=pct_mg
+        ).sound_velocity
 
     def calibrate(self, measured_velocity, pct_al, pct_ipa=0.0, pct_pg=0.0,
-                  temperature=25.0):
+                  temperature=25.0, pct_mg=0.0):
         """
         Set the additive calibration offset [m/s] so the model reproduces
         a measured sound velocity exactly at the given state point.
         Returns the offset (measured - model).
         """
         self.calibration_offset = 0.0
-        base = self.calculate(pct_al, pct_ipa, pct_pg, temperature).sound_velocity
+        base = self.calculate(
+            pct_al, pct_ipa, pct_pg, temperature, pct_mg=pct_mg
+        ).sound_velocity
         self.calibration_offset = measured_velocity - base
         return self.calibration_offset
 
@@ -1382,7 +1486,7 @@ class InkViscosityModel:
 @dataclass
 class InkProperties:
     """Combined result of all four property models."""
-    composition: dict          # mass % {'Al','IPA','PG','Water'}
+    composition: dict          # mass % {'Al', 'IPA', 'PG', 'MG', 'Water'}
     temperature: float         # C
     density: float             # g/cm3
     refractive_index: float    # nD
@@ -1402,6 +1506,7 @@ class InkProperties:
             f"     Aluminum : {c['Al']:7.3f} %",
             f"     IPA      : {c['IPA']:7.3f} %",
             f"     PG       : {c['PG']:7.3f} %",
+            f"     MG       : {c['MG']:7.3f} %",
             f"     Water    : {c['Water']:7.3f} %",
             f"  Temperature : {self.temperature:7.2f} C",
             "  - - - - - - - - - - - - - - - - - - - - - - - - - - - - ",
@@ -1421,29 +1526,36 @@ class InkCalculator:
     """
     One reusable entry point for all ink properties.
 
-    The aluminum / IPA / PG mass percentages are given explicitly and
-    water is taken as the remainder (water = 100 - al - ipa - pg), unless
-    an explicit ``water`` value is supplied. ``rho_pigment`` is the
+    The aluminum / IPA / PG / MG mass percentages are given explicitly
+    and water is taken as the remainder
+    (water = 100 - al - ipa - pg - mg), unless an explicit ``water``
+    value is supplied. ``rho_pigment`` is the
     intrinsic/effective density of one pigment particle, not the loose or
     tapped packing density of a powder bed. It is applied consistently to
     density, sound and viscosity calculations.
 
         ink = InkCalculator(tables_dir="tables_parameters")
-        print(ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25.0))
+        print(ink.compute(
+            al=1.814, ipa=3.628, pg=3.628, mg=0.227,
+            temperature=25.0))
     """
 
     def __init__(self, tables_dir="tables_parameters",
                  suspension_model="batchelor",
                  einstein_coeff=2.5, batchelor_coeff=7.2,
                  intrinsic_viscosity=2.5, phi_max=0.63,
-                 rho_pigment=RHO_PIGMENT):
+                 rho_pigment=RHO_PIGMENT,
+                 rho_mg_apparent=RHO_MG_APPARENT):
         self.tables_dir = tables_dir
         if rho_pigment <= 0.0:
             raise ValueError("rho_pigment must be positive.")
+        if rho_mg_apparent <= 0.0:
+            raise ValueError("rho_mg_apparent must be positive.")
 
         # one shared density calculator (reused by the optical model)
         self.density_calc = InkDensityCalculator(tables_dir=tables_dir)
         self.density_calc.DENSITY_ALUMINUM = float(rho_pigment)
+        self.density_calc.DENSITY_MG_APPARENT = float(rho_mg_apparent)
         self.refractive_calc = InkRefractiveCalculator(
             tables_dir=tables_dir, density_calculator=self.density_calc)
         self.sound_calc = InkSoundCalculator(tables_dir=tables_dir)
@@ -1459,71 +1571,85 @@ class InkCalculator:
 
     # ---- helpers -----------------------------------------------------
     @staticmethod
-    def _validate_state(al, ipa, pg, temperature):
-        values = {"Al": al, "IPA": ipa, "PG": pg,
+    def _validate_state(al, ipa, pg, temperature, mg=0.0):
+        values = {"Al": al, "IPA": ipa, "PG": pg, "MG": mg,
                   "temperature": temperature}
         if not all(np.isfinite(value) for value in values.values()):
             raise ValueError("Composition and temperature must be finite.")
-        if min(al, ipa, pg) < 0.0:
+        if min(al, ipa, pg, mg) < 0.0:
             raise ValueError("Mass percentages must be non-negative.")
-        if al + ipa + pg > 100.0 + 1e-9:
+        if al + ipa + pg + mg > 100.0 + 1e-9:
             raise ValueError(
-                f"Al + IPA + PG = {al + ipa + pg:.3f}% exceeds 100%.")
+                f"Al + IPA + PG + MG = "
+                f"{al + ipa + pg + mg:.3f}% exceeds 100%.")
 
     @classmethod
-    def _water_remainder(cls, al, ipa, pg, water, temperature=25.0):
-        cls._validate_state(al, ipa, pg, temperature)
+    def _water_remainder(cls, al, ipa, pg, water, temperature=25.0,
+                         mg=0.0):
+        cls._validate_state(al, ipa, pg, temperature, mg=mg)
         if water is None:
-            water = 100.0 - al - ipa - pg
+            water = 100.0 - al - ipa - pg - mg
         if not np.isfinite(water) or water < -1e-9:
             raise ValueError("Water mass percentage must be finite and non-negative.")
-        if abs(al + ipa + pg + water - 100.0) > 1e-6:
+        if abs(al + ipa + pg + mg + water - 100.0) > 1e-6:
             raise ValueError(
-                "Explicit Al + IPA + PG + water must sum to 100 mass %."
+                "Explicit Al + IPA + PG + MG + water must sum to 100 mass %."
             )
         return max(water, 0.0)
 
     # ---- individual properties --------------------------------------
-    def density(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
-        """Ink density [g/cm3]."""
-        self._validate_state(al, ipa, pg, temperature)
+    def density(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, mg=0.0):
+        """Ink density [g/cm3], including optional MG."""
+        self._validate_state(al, ipa, pg, temperature, mg=mg)
         return self.density_calc.calculate_density(
-            pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+            pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature,
+            pct_mg=mg)
 
-    def refractive_index(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
-        """Refractive index (nD) of the liquid matrix (pigment excluded)."""
-        self._validate_state(al, ipa, pg, temperature)
+    def refractive_index(self, al=0.0, ipa=0.0, pg=0.0,
+                         temperature=25.0, mg=0.0):
+        """Matrix refractive index; direct MG effects are not modelled."""
+        self._validate_state(al, ipa, pg, temperature, mg=mg)
         return self.refractive_calc.calculate_refractive_index(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
-    def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0):
-        """Sound velocity [m/s]."""
-        self._validate_state(al, ipa, pg, temperature)
+    def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0,
+                       temperature=25.0, mg=0.0):
+        """Sound velocity [m/s]; direct MG contribution is set to zero."""
+        self._validate_state(al, ipa, pg, temperature, mg=mg)
         return self.sound_calc.sound_velocity(
-            pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature)
+            pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature,
+            pct_mg=mg)
 
-    def viscosity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, water=None):
-        """Ink viscosity [mPa.s]."""
+    def viscosity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0,
+                  water=None, mg=0.0):
+        """Ink viscosity [mPa.s]; direct MG effects are not modelled."""
         water = self._water_remainder(
-            al, ipa, pg, water, temperature=temperature)
+            al, ipa, pg, water, temperature=temperature, mg=mg)
         return self.viscosity_model.estimate(
-            water=water, ipa=ipa, pg=pg, aluminum=al,
+            water=water + mg, ipa=ipa, pg=pg, aluminum=al,
             temperature_C=temperature, verbose=False)["viscosity_mPas"]
 
     # ---- everything at once -----------------------------------------
-    def compute(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, water=None):
+    def compute(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0,
+                water=None, mg=0.0):
         """
         Compute all four properties at once and return an InkProperties
         object (printable). Water is the remainder unless given explicitly.
+
+        MG changes density through its apparent density. Its direct sound,
+        refractive-index and viscosity effects are currently set to zero;
+        those models use a reference mixture in which MG is replaced by the
+        same mass of water.
         """
         water = self._water_remainder(
-            al, ipa, pg, water, temperature=temperature)
+            al, ipa, pg, water, temperature=temperature, mg=mg)
         warnings = []
         details = {}
 
         # --- density ---
         rho = self.density_calc.calculate_density(
-            pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
+            pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature,
+            pct_mg=mg)
 
         # --- refractive index (matrix only) ---
         n_d = self.refractive_calc.calculate_refractive_index(
@@ -1531,19 +1657,36 @@ class InkCalculator:
 
         # --- sound velocity ---
         sound = self.sound_calc.calculate(
-            pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature)
+            pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature,
+            pct_mg=mg)
         warnings.extend(sound.warnings)
-        details["density_wood_model"] = sound.density
+        details["density_wood_reference_without_direct_mg"] = sound.density
 
         # --- viscosity ---
         visc = self.viscosity_model.estimate(
-            water=water, ipa=ipa, pg=pg, aluminum=al,
+            water=water + mg, ipa=ipa, pg=pg, aluminum=al,
             temperature_C=temperature, verbose=False)
         warnings.extend(visc["warnings"])
         details["viscosity"] = visc
+        details["methyl_gallate_model"] = {
+            "apparent_density_g_cm3": self.density_calc.DENSITY_MG_APPARENT,
+            "direct_sound_effect": "set to zero",
+            "direct_refractive_effect": "not modelled",
+            "direct_viscosity_effect": "not modelled",
+        }
+        if mg > 0.30:
+            warnings.append(
+                "MG > 0.30 % is outside the range used to fit the apparent "
+                "MG density; the density result is extrapolated.")
 
         return InkProperties(
-            composition={"Al": al, "IPA": ipa, "PG": pg, "Water": water},
+            composition={
+                "Al": al,
+                "IPA": ipa,
+                "PG": pg,
+                "MG": mg,
+                "Water": water,
+            },
             temperature=temperature,
             density=rho,
             refractive_index=n_d,
@@ -1556,23 +1699,23 @@ class InkCalculator:
 
     # ---- calibration passthrough ------------------------------------
     def calibrate_viscosity(self, measured_viscosity, al, ipa, pg,
-                            temperature=25.0, water=None):
+                            temperature=25.0, water=None, mg=0.0):
         """Anchor the viscosity model to a measured value (sets its calibration factor)."""
         water = self._water_remainder(
-            al, ipa, pg, water, temperature=temperature)
+            al, ipa, pg, water, temperature=temperature, mg=mg)
         return self.viscosity_model.calibrate(
-            measured_viscosity, water=water, ipa=ipa, pg=pg,
+            measured_viscosity, water=water + mg, ipa=ipa, pg=pg,
             aluminum=al, temperature_C=temperature)
 
     def calibrate_sound(self, measured_velocity, al, ipa=0.0, pg=0.0,
-                        temperature=25.0):
+                        temperature=25.0, mg=0.0):
         """
         Anchor the sound model to a measured value (sets its additive
         offset in m/s). Returns the offset (measured - model).
         """
         return self.sound_calc.calibrate(
             measured_velocity, pct_al=al, pct_ipa=ipa, pct_pg=pg,
-            temperature=temperature)
+            temperature=temperature, pct_mg=mg)
 
     # ---- pigment-paste mode -----------------------------------------
     @staticmethod
@@ -1622,7 +1765,7 @@ class InkCalculator:
     def compute_from_paste(self, paste, ipa=0.0, pg=0.0, temperature=25.0,
                            solids_fraction=0.20,
                            ipa_fraction=0.40, pg_fraction=0.40,
-                           rho_particle=2.20):
+                           rho_particle=2.20, mg=0.0):
         """
         Compute all four properties for an ink specified via pigment-
         PASTE dosage (see paste_composition). The effective particle
@@ -1646,8 +1789,9 @@ class InkCalculator:
         self.sound_calc.DENSITY_ALUMINUM = comp["rho_particle"]
         self.viscosity_model.rho_pigment = comp["rho_particle"]
         try:
-            props = self.compute(al=comp["al"], ipa=comp["ipa"],
-                                 pg=comp["pg"], temperature=temperature)
+            props = self.compute(
+                al=comp["al"], ipa=comp["ipa"], pg=comp["pg"], mg=mg,
+                temperature=temperature)
         finally:
             (self.density_calc.DENSITY_ALUMINUM,
              self.sound_calc.DENSITY_ALUMINUM,
@@ -1662,6 +1806,7 @@ class InkCalculator:
             "ipa_from_paste_pct": paste * ipa_fraction,
             "pg_from_paste_pct": paste * pg_fraction,
             "rho_particle": comp["rho_particle"],
+            "mg_pct": mg,
         }
         return props
 
@@ -1675,14 +1820,17 @@ if __name__ == "__main__":
 
     ink = InkCalculator(tables_dir=tables)
 
-    # # original ink: 1.82% Al, 3.64% IPA, 3.64% PG, rest water, 25 C
-    # props = ink.compute(al=1.82, ipa=3.64, pg=3.64, temperature=25)
+    # Ink with MG at the nominal recipe concentration, rest water, 25 C:
+    # props = ink.compute(
+    #     al=1.814, ipa=3.628, pg=3.628, mg=0.227, temperature=25.0)
     # print(props)
 
     # individual numbers, if you only need one property:
-    #   rho = ink.density(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
+    #   rho = ink.density(
+    #       al=1.814, ipa=3.628, pg=3.628, mg=0.227, temperature=25.0)
     #   n_d = ink.refractive_index(ipa=3.64, pg=3.64, temperature=25.0)
-    #   c   = ink.sound_velocity(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
+    #   c   = ink.sound_velocity(
+    #       al=1.814, ipa=3.628, pg=3.628, mg=0.227, temperature=25.0)
     #   eta = ink.viscosity(al=1.82, ipa=3.64, pg=3.64, temperature=25.0)
 
     # anchor the viscosity estimate to a measured value:
@@ -1695,5 +1843,11 @@ if __name__ == "__main__":
     ink.sound_calc.self_test(verbose=True)
     print()
 
-    props = ink.compute(al=1.8128, ipa=3.6256, pg=3.6256, temperature=23.66)
+    props = ink.compute(
+        al=1.8141,
+        ipa=3.6281,
+        pg=3.6281,
+        mg=20.0 / 88.2,
+        temperature=23.66,
+    )
     print(props)
