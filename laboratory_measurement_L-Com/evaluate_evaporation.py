@@ -25,7 +25,14 @@ Dependencies: numpy, pandas, scipy, matplotlib and the user's MG-capable
 ink_calculator.py with its tables_parameters directory. All comments and
 docstrings in this file are in English. Application text and source code use
 ASCII characters to prevent mojibake when transferred through legacy Windows
-encodings. Calculations and numeric results are unchanged from version 1.0.0.
+encodings. Without a calibration field, the physical model is unchanged.
+
+Optional hybrid model:
+    --calibration-field results/calibration_field/NAME/calibration_field.json
+The saved A(w) correction is evaluated at every reconstructed composition,
+including during fitting and bootstrap. The field itself is never refitted.
+Interactive runs offer numbered field selection (Enter = physics only).
+Fully specified CLI runs keep physics only unless a field is supplied.
 """
 
 from __future__ import annotations
@@ -59,7 +66,7 @@ MASS_COLUMNS = ["m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"]
 COMPONENTS = ["Al", "IPA", "PG", "MG", "Water"]
 COLORS = {"none": "#9AA4AE", "ipa": "#D17A22", "mixed": "#087F8C"}
 LABELS = {"none": "Keine Verdunstung", "ipa": "Nur IPA", "mixed": "IPA + Wasser"}
-VERSION = "1.0.1-ascii"
+VERSION = "1.1.0-hybrid-ascii"
 
 
 def number(value):
@@ -348,6 +355,180 @@ def load_calculator(calculator_path=None, tables=None):
     return module.InkCalculator(tables_dir=str(table_path)), path, table_path
 
 
+FIELD_AXES = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct"]
+
+
+class CalibrationField:
+    """Cached JSON adapter matching residual_calibration_field.idw_residual.
+
+    Keep the saved scale, neighbor count, power and channel-specific SE
+    weighting. Density corrections are already in kg/m^3, NOT g/cm^3.
+    The field has no independently learned temperature correction.
+    """
+
+    def __init__(self, path):
+        path = Path(path).expanduser().resolve()
+        self.path = path / "calibration_field.json" if path.is_dir() else path
+        raw = self.path.read_bytes()
+        self.sha256 = hashlib.sha256(raw).hexdigest()
+        payload = json.loads(raw.decode("utf-8-sig"))
+        if not isinstance(payload, dict) or payload.get("schema") != "ink-residual-calibration-field":
+            raise ValueError("Unsupported calibration field schema.")
+        if payload.get("schema_version", 1) not in (1, 2):
+            raise ValueError("Unsupported calibration field schema version.")
+        self.payload = payload
+        self.axes = payload.get("composition_axes", FIELD_AXES[:3])
+        if (not isinstance(self.axes, list) or not self.axes
+                or any(axis not in FIELD_AXES for axis in self.axes)
+                or len(set(self.axes)) != len(self.axes)):
+            raise ValueError("Invalid calibration composition axes.")
+        self.axis_indexes = [FIELD_AXES.index(axis) for axis in self.axes]
+        nodes = payload.get("nodes")
+        if not isinstance(nodes, list) or not nodes or not all(isinstance(n, dict) for n in nodes):
+            raise ValueError("Calibration field must contain nonempty residual nodes.")
+        frame = pd.DataFrame(nodes)
+        values = ["A_Rho_kg_m3", "A_C_m_s"]
+        errors = ["A_Rho_SE_kg_m3", "A_C_SE_m_s"]
+        missing = set(self.axes + values + errors) - set(frame.columns)
+        if missing:
+            raise ValueError(f"Missing calibration node columns: {sorted(missing)}")
+        self.coordinates = frame[self.axes].to_numpy(float)
+        self.values = frame[values].to_numpy(float)
+        self.se = frame[errors].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        if not np.isfinite(self.coordinates).all() or not np.isfinite(self.values).all():
+            raise ValueError("Calibration coordinates/residuals must be finite.")
+        if (self.coordinates < 0).any() or (self.coordinates.sum(axis=1) > 100+1e-8).any():
+            raise ValueError("Nonphysical calibration composition.")
+        settings = payload.get("interpolation", {})
+        if not isinstance(settings, dict) or settings.get("method", "scaled_inverse_distance_weighting") != "scaled_inverse_distance_weighting":
+            raise ValueError("Unsupported calibration interpolation method.")
+        self.scale = np.asarray(settings.get("scale", []), float)
+        if (self.scale.shape != (len(self.axes),) or not np.isfinite(self.scale).all()
+                or (self.scale <= 0).any()):
+            raise ValueError("Calibration scale must be positive and match its axes.")
+        self.power = float(settings.get("power", 2.0))
+        count = float(settings.get("neighbors", 4))
+        if not np.isfinite(self.power) or self.power <= 0 or not np.isfinite(count) or not count.is_integer():
+            raise ValueError("Invalid IDW power or neighbor count.")
+        self.neighbors = len(nodes) if count <= 0 else min(int(count), len(nodes))
+        self.minimum = self.coordinates.min(axis=0)
+        self.maximum = self.coordinates.max(axis=0)
+        self.label = self.path.parent.name if self.path.name == "calibration_field.json" else self.path.stem
+
+    def evaluate(self, compositions):
+        """Return correction, local spread and support flags for each row."""
+        compositions = np.asarray(compositions, float)
+        if compositions.ndim != 2 or compositions.shape[1] < 4 or not np.isfinite(compositions).all():
+            raise ValueError("Expected finite Al/IPA/PG/MG compositions in wt-%.")
+        targets = compositions[:, self.axis_indexes]
+        distances = np.linalg.norm((self.coordinates[None, :, :] - targets[:, None, :]) / self.scale, axis=2)
+        nearest = np.argmin(distances, axis=1)
+        correction = np.empty((len(targets), 2))
+        uncertainty = np.empty_like(correction)
+        neighbor_sets = []
+        for i, distance in enumerate(distances):
+            indexes = np.argsort(distance)[:self.neighbors]
+            if distance[nearest[i]] < 1e-12:
+                indexes = np.array([nearest[i]])
+            # A common geometric factor cancels on normalization. Log weights
+            # avoid overflow while retaining the saved interpolation equation.
+            log_geometric = -self.power * np.log(np.maximum(distance[indexes], 1e-12))
+            for j in range(2):
+                se = self.se[indexes, j]
+                valid = np.isfinite(se) & (se >= 0)
+                fallback = float(np.median(se[valid])) if valid.any() else 1.0
+                se = np.where(valid, se, fallback)
+                log_weight = log_geometric - 2*np.log(np.maximum(se, max(fallback*.25, 1e-9)))
+                weights = np.exp(log_weight - log_weight.max())
+                weights /= weights.sum()
+                values = self.values[indexes, j]
+                estimate = float(weights @ values)
+                correction[i, j] = estimate
+                uncertainty[i, j] = np.sqrt(weights @ ((values-estimate)**2 + se**2))
+            neighbor_sets.append(tuple(sorted(indexes.tolist())))
+        tolerance = 1e-10*np.maximum(1, np.maximum(abs(self.minimum), abs(self.maximum)))
+        outside = (targets < self.minimum-tolerance) | (targets > self.maximum+tolerance)
+        return {"correction": correction, "uncertainty": uncertainty,
+                "distance": distances[np.arange(len(targets)), nearest],
+                "nearest_node": nearest, "outside": outside.any(axis=1),
+                "outside_axes": [",".join(a.removesuffix("_wt_pct") for a, flag in zip(self.axes, row) if flag) for row in outside],
+                "neighbor_sets": neighbor_sets}
+
+    def provenance_warnings(self, calculator_path, tables_path, source, selected):
+        notices = []
+        provenance = self.payload.get("calculator", {})
+        expected = provenance.get("sha256")
+        if expected and hashlib.sha256(calculator_path.read_bytes()).hexdigest() != expected:
+            notices.append("CALIBRATION MISMATCH: calculator differs from the field build; rebuild A(w) with consistent physics.")
+        mismatched = []
+        for name, digest in provenance.get("table_sha256", {}).items():
+            # Only inspect named parameter files, never arbitrary JSON paths.
+            if Path(name).name != name or "/" in name or "\\" in name:
+                raise ValueError("Invalid parameter-table name in field provenance.")
+            path = tables_path / name
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                mismatched.append(name)
+        if mismatched:
+            notices.append("CALIBRATION MISMATCH: parameter tables differ: " + ", ".join(mismatched))
+        if not expected or not provenance.get("table_sha256"):
+            notices.append("Incomplete field provenance: calculator/table compatibility cannot be fully checked.")
+        keys = set(self.payload.get("training_measurement_keys", []))
+        if keys:
+            overlap = 0
+            for _, row in selected.iterrows():
+                key = "|".join([str(int(row.ProbeNr)), str(row.Timestamp)] + [f"{float(row[c]):.9g}" for c in MASS_COLUMNS])
+                overlap += hashlib.sha256(key.encode("utf-8")).hexdigest() in keys
+            if overlap:
+                notices.append(f"TRAINING OVERLAP: {overlap} selected measurements built this field; this is not independent validation.")
+        else:
+            notices.append("This older field has no acquisition keys; training overlap cannot be ruled out, including renamed CSV files.")
+            if any(str(n.get("Source_File")) == source.name and str(n.get("ProbeNr")) in
+                   (str(int(selected.ProbeNr.iloc[0])), str(float(selected.ProbeNr.iloc[0]))) for n in self.payload["nodes"]):
+                notices.append("POSSIBLE TRAINING OVERLAP: source filename and sample match calibration nodes.")
+        if any(e.get("mode") == "estimate" for e in self.payload.get("evaporation", [])):
+            notices.append("The field was built using inferred evaporation; its corrections depend on that previous evaporation assumption.")
+        return notices
+
+
+def find_calibration_fields(folder=None):
+    """Discover saved JSON fields in project results, without changing them."""
+    roots = ([Path(folder).expanduser()] if folder else
+             [SCRIPT_DIR / "results", Path.cwd() / "laboratory_measurement_L-Com" / "results", Path.cwd() / "results"])
+    paths = {p.resolve() for root in roots if root.is_dir() for p in root.rglob("calibration_field.json")}
+    return sorted(paths, key=lambda p: str(p).lower())
+
+
+def choose_calibration_field(folder=None):
+    paths = find_calibration_fields(folder)
+    print("\nVorhersagemodell waehlen")
+    print("  0: Nur InkCalculator, ohne Kalibrierfeld [Standard]")
+    for i, path in enumerate(paths, 1):
+        print(f"  {i}: Hybridmodell | {path}")
+    print("  M: Anderen Feldpfad eingeben")
+    while True:
+        answer = input("Nummer (Enter = 0, q = Abbruch): ").strip().lower()
+        if answer == "q":
+            raise KeyboardInterrupt
+        if answer in ("", "0"):
+            return None
+        if answer == "m":
+            path = input("Pfad zu calibration_field.json (q = Abbruch): ").strip().strip('"')
+            if path.lower() == "q":
+                raise KeyboardInterrupt
+            if not path:
+                continue
+            candidate = Path(path).expanduser()
+        elif answer.isdigit() and 1 <= int(answer) <= len(paths):
+            candidate = paths[int(answer)-1]
+        else:
+            print("Bitte eine angezeigte Nummer oder M eingeben.")
+            continue
+        try:
+            return CalibrationField(candidate)
+        except (ValueError, OSError, TypeError) as exc:
+            print(f"Feld konnte nicht geladen werden: {exc}")
+
+
 @dataclass
 class EvaporationModel:
     calculator: object
@@ -357,6 +538,11 @@ class EvaporationModel:
     segments: int = 1
     max_ipa_rate: float = 15.0
     max_water_rate: float = 30.0
+    calibration_field: object = None
+
+    @property
+    def prediction_label(self):
+        return "Hybridmodell: InkCalculator + A(w)" if self.calibration_field else "InkCalculator ohne Kalibrierfeld"
 
     def __post_init__(self):
         self.time = np.asarray(self.time, float)
@@ -395,7 +581,7 @@ class EvaporationModel:
         pct = 100*masses/masses.sum(axis=1)[:, None]
         return losses, masses, pct
 
-    def predict(self, params, mode):
+    def physics_prediction(self, params, mode):
         _, _, pct = self.states(params, mode)
         result = np.empty((len(self.time), 2))
         for i, (w, t) in enumerate(zip(pct, self.temperature)):
@@ -404,6 +590,13 @@ class EvaporationModel:
         if not np.isfinite(result).all():
             raise ValueError("Calculator returned nonfinite predictions.")
         return result
+
+    def predict(self, params, mode):
+        physics = self.physics_prediction(params, mode)
+        if self.calibration_field is None:
+            return physics
+        _, _, pct = self.states(params, mode)
+        return physics + self.calibration_field.evaluate(pct)["correction"]
 
 
 def fit_model(model, observed, sigma, mode, start=None):
@@ -439,9 +632,10 @@ def fit_model(model, observed, sigma, mode, start=None):
     else:
         params = np.empty(0)
         jacobian = np.empty((observed.size, 0))
-    physics = model.predict(params, mode)
-    offset = (observed-physics).mean(axis=0)
-    predicted = physics+offset
+    base_prediction = model.predict(params, mode)
+    physics = model.physics_prediction(params, mode) if model.calibration_field else base_prediction
+    offset = (observed-base_prediction).mean(axis=0)
+    predicted = base_prediction+offset
     errors = observed-predicted
     rates = model.rates(params, mode)
     duration = model.time[-1]
@@ -460,7 +654,8 @@ def fit_model(model, observed, sigma, mode, start=None):
                 if x < max(1e-5, upper*1e-4) or upper-x < max(1e-5, upper*1e-4)]
     result = {"mode": mode, "params": params, "rates": rates, "average_rates_g_h": average,
               "total_rate_g_h": total, "ipa_mass_fraction_in_loss": float(average[0]/total) if total > 1e-6 else None,
-              "offset": offset, "physics": physics, "predicted": predicted, "errors": errors,
+              "offset": offset, "physics": physics, "base_prediction": base_prediction,
+              "predicted": predicted, "errors": errors,
               "rmse": np.sqrt(np.mean(errors**2, axis=0)),
               "weighted_sse": float(np.sum((errors/sigma)**2)),
               "normalized_jacobian_condition": condition, "sensitivity_correlations": correlation,
@@ -547,6 +742,41 @@ def calculator_support_warnings(model, results):
     return sorted(issues)
 
 
+def calibration_diagnostics(model, results):
+    field = model.calibration_field
+    if field is None:
+        return []
+    notices = [
+        "Hybrid prediction: InkCalculator + saved A(w), reevaluated at every reconstructed composition.",
+        "Constant channel offsets remain fitted; only composition-dependent changes of A(w) affect the loss-rate fit.",
+        "The field is held fixed: bootstrap intervals exclude calibration-node, interpolation and calibration-evaporation uncertainty.",
+        "Field coverage uses an axis-aligned bounding box only. Inside this box does not guarantee interpolation inside the sampled region.",
+        "The field has no learned temperature dependence. A temperature-dependent residual drift can still mimic evaporation.",
+        "IDW slopes are empirical, not thermodynamic derivatives; evaporation estimates require independent gravimetric checks.",
+    ]
+    if model.masses0[3] > 0 and "MG_wt_pct" not in field.axes:
+        notices.append("MG WARNING: physics includes MG but this legacy field has no MG axis; no MG-specific residual correction is learned.")
+    if len(field.coordinates) == 1:
+        notices.append("One-node field: A(w) is constant and is absorbed by the fitted offsets; loss rates are unchanged.")
+    for mode, fit in results.items():
+        _, _, pct = model.states(fit["params"], mode)
+        support = field.evaluate(pct)
+        count = int(support["outside"].sum())
+        if count:
+            axes = sorted({axis for row in support["outside_axes"] for axis in row.split(",") if axis})
+            notices.append(f"FIELD EXTRAPOLATION ({mode}): {count}/{len(pct)} fitted states outside the bounding box; axes: {', '.join(axes)}. No clipping or physics fallback applied.")
+        changes = sum(a != b for a, b in zip(support["neighbor_sets"][:-1], support["neighbor_sets"][1:]))
+        if changes:
+            notices.append(f"FIELD NEIGHBORS ({mode}): {changes} changes along the trajectory; local IDW neighbor changes can introduce jumps and affect optimization.")
+    nodes = pd.DataFrame(field.payload["nodes"])
+    if {"Temperature_Min_C", "Temperature_Max_C"}.issubset(nodes.columns):
+        low = pd.to_numeric(nodes.Temperature_Min_C, errors="coerce").min()
+        high = pd.to_numeric(nodes.Temperature_Max_C, errors="coerce").max()
+        if np.isfinite(low) and np.isfinite(high) and ((model.temperature < low) | (model.temperature > high)).any():
+            notices.append(f"FIELD TEMPERATURE: measurements extend beyond calibration temperatures {low:.2f} to {high:.2f} degC.")
+    return notices
+
+
 def plot_sensor_history(selected, model, results, out, title):
     minutes = model.time*60
     fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
@@ -622,7 +852,7 @@ def plot_compositions(model, results, out, title):
 def plot_diagnostics(selected, model, results, sigma, out):
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     fig.subplots_adjust(top=.87, bottom=.13, hspace=.38, wspace=.33)
-    fig.suptitle("Fitdiagnostik | Restfehler und Empfindlichkeit", fontsize=16)
+    fig.suptitle(f"Fitdiagnostik | Restfehler und Empfindlichkeit\n{model.prediction_label}", fontsize=15)
     for j, unit in enumerate(["kg/m^3", "m/s"]):
         for mode in ["none", "ipa", "mixed"]:
             axes[0, j].plot(model.time*60, results[mode]["errors"][:, j], "o-", ms=3,
@@ -680,12 +910,24 @@ def export_results(selected, audit, model, results, sigma, notices, args, out, p
             records[f"{mode}_{name}_wt_pct"] = pct[:, k]
         for k, name in enumerate(["Rho", "C"]):
             records[f"{mode}_{name}_physics"] = fit["physics"][:, k]
+            records[f"{mode}_{name}_base_prediction"] = fit["base_prediction"][:, k]
             records[f"{mode}_{name}_fit_with_offset"] = fit["predicted"][:, k]
             records[f"{mode}_{name}_residual"] = fit["errors"][:, k]
+        if model.calibration_field:
+            support = model.calibration_field.evaluate(pct)
+            for k, name in enumerate(["Rho_kg_m3", "C_m_s"]):
+                records[f"{mode}_A_{name}"] = support["correction"][:, k]
+                records[f"{mode}_A_spread_{name}"] = support["uncertainty"][:, k]
+            records[f"{mode}_Calibration_distance"] = support["distance"]
+            records[f"{mode}_Calibration_outside_box"] = support["outside"]
+            records[f"{mode}_Calibration_outside_axes"] = support["outside_axes"]
+            records[f"{mode}_Calibration_nearest_node"] = support["nearest_node"]
     records.to_csv(out / "evaporation_time_series.csv", index=False)
     summary, segments = [], []
     for mode, fit in results.items():
         entry = {"Model": mode, "IPA_rate_g_h": fit["average_rates_g_h"][0],
+                 "Prediction_model": "hybrid" if model.calibration_field else "physics",
+                 "Calibration_field": str(model.calibration_field.path) if model.calibration_field else "",
                  "Water_rate_g_h": fit["average_rates_g_h"][1], "Total_rate_g_h": fit["total_rate_g_h"],
                  "IPA_mass_fraction_in_loss": fit["ipa_mass_fraction_in_loss"],
                  "IPA_loss_g": fit["average_rates_g_h"][0]*model.time[-1],
@@ -714,11 +956,23 @@ def export_results(selected, audit, model, results, sigma, notices, args, out, p
                 "arguments": vars(args), "sample": float(selected.ProbeNr.iloc[0]), "phase": int(selected.Phase.iloc[0]),
                 "start_utc": selected.Timestamp.iloc[0].isoformat(), "end_utc": selected.Timestamp.iloc[-1].isoformat(),
                 "start_masses_g": dict(zip(COMPONENTS, model.masses0)), "noise_scales": sigma,
+                "prediction_model": "hybrid" if model.calibration_field else "physics",
+                "calibration_field": ({"path": str(model.calibration_field.path),
+                                       "sha256": model.calibration_field.sha256,
+                                       "schema_version": model.calibration_field.payload.get("schema_version", 1),
+                                       "composition_axes": model.calibration_field.axes,
+                                       "node_count": len(model.calibration_field.coordinates),
+                                       "interpolation": model.calibration_field.payload["interpolation"],
+                                       "calculator_provenance": model.calibration_field.payload.get("calculator", {}),
+                                       "build_evaporation": model.calibration_field.payload.get("evaporation", [])}
+                                      if model.calibration_field else None),
                 "notices": notices,
-                "models": {mode: {k:v for k,v in fit.items() if k not in ["physics", "predicted", "errors"]} for mode, fit in results.items()}}
+                "models": {mode: {k:v for k,v in fit.items() if k not in ["physics", "base_prediction", "predicted", "errors"]} for mode, fit in results.items()}}
     write_json(out / "analysis_metadata.json", metadata)
     lines = ["# Evaporation analysis", "", f"Source: {paths[0].name}",
              f"Sample: {selected.ProbeNr.iloc[0]:g}; phase: {selected.Phase.iloc[0]}; duration: {model.time[-1]*60:.2f} min", "",
+             f"Prediction model: {model.prediction_label}",
+             f"Calibration field: {model.calibration_field.path if model.calibration_field else 'none'}", "",
              "| Model | IPA [g/h] | Water [g/h] | Total [g/h] | Density RMSE [kg/m^3] | Sound RMSE [m/s] |",
              "|---|---:|---:|---:|---:|---:|"]
     for row in summary:
@@ -727,6 +981,8 @@ def export_results(selected, audit, model, results, sigma, notices, args, out, p
     lines += ["", "The solvent ratio is a MASS ratio of the integrated inferred losses, not a volume or molar ratio.",
               "All losses start at the first retained timestamp. Do not extrapolate them back before that point.",
               "RMSE values refer to an in-sample fit with fitted channel offsets, not external validation.", "",
+              "CSV: *_physics contains the uncorrected calculator prediction; *_base_prediction contains physics + A(w) when a field is selected.",
+              "*_fit_with_offset additionally includes the fitted constant channel offset. Field spread is not a confidence interval on the evaporation rate.", "",
               "![Sensor history](sensor_history.png)", "![Losses](evaporation_losses_and_rates.png)",
               "![Composition](composition_history.png)", "![Diagnostics](fit_diagnostics.png)"]
     (out / "analysis_report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
@@ -742,6 +998,13 @@ def parser():
     p.add_argument("--phase", type=int, help="Phasennummer innerhalb der Probe; ohne Angabe nummerierte Auswahl.")
     p.add_argument("--calculator", type=Path, help="Pfad zum MG-faehigen ink_calculator.py.")
     p.add_argument("--tables", type=Path, help="Pfad zu tables_parameters.")
+    field_group = p.add_mutually_exclusive_group()
+    field_group.add_argument("--calibration-field", "--field", type=Path,
+                             help="Optionales calibration_field.json (oder dessen Ordner): InkCalculator + A(w).")
+    field_group.add_argument("--no-calibration-field", "--no-field", action="store_true",
+                             help="Nur InkCalculator verwenden; auch interaktiv keine Feldauswahl.")
+    p.add_argument("--calibration-dir", type=Path,
+                   help="Suchordner fuer interaktive Feldauswahl; sonst im Projekt unter results.")
     p.add_argument("--output-root", type=Path, help="Optionaler CLI-Pfad; sonst automatisch results/evaporation_analysis.")
     p.add_argument("--start-min", type=nonnegative, default=0, help="Fensterbeginn nach erstem Phasen-Zeitstempel.")
     p.add_argument("--end-min", type=positive, help="Fensterende nach erstem Phasen-Zeitstempel.")
@@ -797,8 +1060,20 @@ def main(argv=None):
                     setattr(args, attr, nonnegative(entry))
     masses = starting_masses(selected.iloc[0], args.prior_ipa_loss or 0, args.prior_water_loss or 0)
     calc, calculator_path, tables_path = load_calculator(args.calculator, args.tables)
+    field = None
+    if args.calibration_field is not None:
+        field = CalibrationField(args.calibration_field)
+    elif interactive and not args.no_calibration_field:
+        field = choose_calibration_field(args.calibration_dir)
+    args.calibration_field = field.path if field else None
+    field_notices = field.provenance_warnings(calculator_path, tables_path, source, selected) if field else []
+    for notice in field_notices:
+        print(f"WARNING: {notice}", flush=True)
     model = EvaporationModel(calc, masses, selected.Elapsed_h.to_numpy(), selected.T_M.to_numpy(),
-                             args.segments, args.max_ipa_rate, args.max_water_rate)
+                             args.segments, args.max_ipa_rate, args.max_water_rate, calibration_field=field)
+    print(f"Vorhersagemodell: {model.prediction_label}", flush=True)
+    if field:
+        print(f"Kalibrierfeld: {field.path}\nDas Feld bleibt unveraendert; A(w) wird je Zusammensetzung neu berechnet.", flush=True)
     if args.segments > 1:
         bins = np.minimum(np.searchsorted(model.edges, model.time, side="right")-1, args.segments-1)
         if np.any(np.bincount(bins, minlength=args.segments) < 4):
@@ -821,8 +1096,14 @@ def main(argv=None):
     notices = diagnostics(model, results, selected, args)
     notices += sorted(set(f"Calculator warning: {w.message}" for w in caught))
     notices += [f"Calculator support: {w}" for w in calculator_support_warnings(model, results)]
-    out = new_output(f"{source.stem}_probe_{sample:g}_phase_{int(selected.Phase.iloc[0])}", args.output_root)
-    title = f"{source.name} | Probe {sample:g} | Phase {int(selected.Phase.iloc[0])} | {model.time[-1]*60:.1f} min"
+    field_diagnostics = calibration_diagnostics(model, results)
+    notices += field_notices + field_diagnostics
+    for notice in field_diagnostics:
+        if notice.startswith(("FIELD", "MG WARNING", "One-node")):
+            print(f"WARNING: {notice}")
+    run_prefix = f"hybrid_{slug(field.label)[:24]}_{field.sha256[:8]}_" if field else ""
+    out = new_output(f"{run_prefix}{source.stem[:35]}_probe_{sample:g}_phase_{int(selected.Phase.iloc[0])}", args.output_root)
+    title = f"{source.name} | Probe {sample:g} | Phase {int(selected.Phase.iloc[0])} | {model.time[-1]*60:.1f} min\n{model.prediction_label}"
     plot_sensor_history(selected, model, results, out, title)
     plot_losses(model, results, out, title)
     plot_compositions(model, results, out, title)
@@ -839,6 +1120,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nAbgebrochen.")
         sys.exit(130)
-    except (ValueError, FileNotFoundError, RuntimeError, ImportError) as error:
+    except (ValueError, OSError, RuntimeError, ImportError) as error:
         print(f"\nFehler: {error}", file=sys.stderr)
         sys.exit(2)

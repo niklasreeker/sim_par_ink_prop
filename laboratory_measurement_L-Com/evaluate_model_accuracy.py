@@ -1,40 +1,23 @@
 #!/usr/bin/env python3
 """Vergleicht L-Com-Messwerte mit den Ergebnissen aus ink_calculator.py.
 
-Fuer jeden verwendbaren Messpunkt werden Dichte und Schallgeschwindigkeit
+Für jeden verwendbaren Messpunkt werden Dichte und Schallgeschwindigkeit
 mit derselben Zusammensetzung und Temperatur simuliert. Das Programm erzeugt:
 
-* model_comparison.csv       - Messwert, Simulation und Fehler je Messpunkt
-* accuracy_summary.csv       - globale Kennzahlen fuer beide Messgroessen
-* accuracy_by_sample.csv     - Kennzahlen getrennt nach ProbeNr
-* accuracy_by_composition.csv- Kennzahlen je Rezeptur
-* high_deviation_points.csv  - Messpunkte oberhalb der Fehlergrenzen
-* time_analysis_by_sample.csv- Zeittrend der Residuen je Probe
+* model_comparison.csv        - Messwert, Simulation und Fehler je Messpunkt
+* accuracy_summary.csv        - globale Kennzahlen für beide Messgrößen
+* accuracy_by_sample.csv      - Kennzahlen getrennt nach ProbeNr
+* accuracy_by_composition.csv - Kennzahlen je Rezeptur
+* high_deviation_points.csv   - Messpunkte oberhalb der Fehlergrenzen
+* time_analysis_by_sample.csv - Zeittrend der Residuen je Probe
 * time_analysis_by_segment.csv- Zeittrend innerhalb konstanter Rezepturabschnitte
-* model_accuracy.png         - Paritaets- und Fehlerdiagramme
-* sample_plots/              - ein Vergleichsplot je ProbeNr
-* time_plots/                - Residuen ueber der Zeit je ProbeNr
+* model_accuracy.png          - Paritäts- und Fehlerdiagramme
+* sample_plots/               - ein Vergleichsplot je ProbeNr
+* time_plots/                 - Residuen über der Zeit je ProbeNr
 
 Aufruf aus dem Repository-Hauptverzeichnis:
 
     python laboratory_measurement_L-Com/evaluate_model_accuracy.py
-
-Optionen zeigt ``--help``. Der signierte Fehler ist immer
-``Simulation - Messung``. ``Rho_M`` wird als kg/m^3 interpretiert;
-``InkCalculator.density`` liefert g/cm^3 und wird deshalb mit 1000
-multipliziert.
-
-Bei mehreren Messdateien wird genau eine Datei anhand einer nummerierten
-Auswahl eingelesen. MG wird als eigener Massenanteil an den MG-faehigen
-Calculator uebergeben. Die Zusammensetzung basiert weiterhin auf den
-Einwaagen ohne Verdunstungskorrektur; fuer verdunstungskorrigierte
-Hybridvergleiche ist residual_calibration_field.py vorgesehen.
-
-Die Zeitanalyse verwendet den Zeitstempel aus ``Date`` und ``UTC Time``.
-Ein negativer Dichtetrend zusammen mit einem positiven Schalltrend ist im
-vorliegenden Stoffsystem mit IPA-Verlust vereinbar. Er ist jedoch ohne
-Massenbilanz oder eine unabhaengige Konzentrationsmessung kein eindeutiger
-Nachweis fuer IPA-Verdunstung.
 """
 
 from __future__ import annotations
@@ -67,33 +50,30 @@ SL120 = {"Al": 0.20, "IPA": 0.40, "PG": 0.40}
 MASS_COLUMNS = ["m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"]
 REQUIRED_COLUMNS = MASS_COLUMNS + ["Rho_M", "C_M", "T_M"]
 
-# Dieselben grundlegenden Plausibilitaetsgrenzen wie in
-# evaluation_laboratory_measurement.py.
 VALUE_RANGES = {
     "Rho_M": (500.0, 2000.0),  # kg/m^3
-    "C_M": (1000.0, 2200.0),  # m/s
-    "T_M": (-10.0, 100.0),  # degC
+    "C_M": (1000.0, 2200.0),    # m/s
+    "T_M": (-10.0, 100.0),     # degC
 }
 
 
 def non_negative_float(value: str) -> float:
     number = float(value)
     if not np.isfinite(number) or number < 0:
-        raise argparse.ArgumentTypeError("Wert muss groesser oder gleich 0 sein.")
+        raise argparse.ArgumentTypeError("Wert muss größer oder gleich 0 sein.")
     return number
 
 
 def non_negative_int(value: str) -> int:
     number = int(value)
     if number < 0:
-        raise argparse.ArgumentTypeError("Wert muss groesser oder gleich 0 sein.")
+        raise argparse.ArgumentTypeError("Wert muss größer oder gleich 0 sein.")
     return number
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Messwerte von Dichte und Schallgeschwindigkeit mit "
-        "ink_calculator.py vergleichen."
+        description="Messwerte von Dichte und Schallgeschwindigkeit mit ink_calculator.py vergleichen."
     )
     parser.add_argument(
         "--input",
@@ -102,12 +82,16 @@ def parse_args() -> argparse.Namespace:
         help="CSV-Datei oder Verzeichnis mit CSV-Dateien (Standard: measurement_data).",
     )
     parser.add_argument(
-        "--file-index", type=int, default=None,
-        help="Optional: angezeigte Dateinummer ohne interaktive Rueckfrage auswaehlen.",
+        "--file-index",
+        type=int,
+        default=None,
+        help="Optional: angezeigte Dateinummer ohne interaktive Rückfrage auswählen.",
     )
     parser.add_argument(
-        "--calculator", type=Path, default=DEFAULT_CALCULATOR,
-        help="Pfad zur MG-faehigen ink_calculator.py (Standard: Repository-Hauptverzeichnis).",
+        "--calculator",
+        type=Path,
+        default=DEFAULT_CALCULATOR,
+        help="Pfad zur MG-fähigen ink_calculator.py (Standard: Repository-Hauptverzeichnis).",
     )
     parser.add_argument(
         "--output",
@@ -119,13 +103,12 @@ def parse_args() -> argparse.Namespace:
         "--tables",
         type=Path,
         default=DEFAULT_TABLES,
-        help="Verzeichnis tables_parameters fuer ink_calculator.py.",
+        help="Verzeichnis tables_parameters für ink_calculator.py.",
     )
     parser.add_argument(
         "--require-quality-flags",
         action="store_true",
-        help="Nur Zeilen verwenden, deren vorhandene Flags SensOK, Gueltig "
-        "und Stabil jeweils 1 sind.",
+        help="Nur Zeilen verwenden, deren vorhandene Flags SensOK, Gültig und Stabil jeweils 1 sind.",
     )
     parser.add_argument(
         "--rho-outlier-threshold-pct",
@@ -143,39 +126,38 @@ def parse_args() -> argparse.Namespace:
         "--max-console-outliers",
         type=non_negative_int,
         default=20,
-        help="Maximal ausgegebene Punkte je Messgroesse; 0 zeigt alle (Standard: 20).",
+        help="Maximal ausgegebene Punkte je Messgröße; 0 zeigt alle (Standard: 20).",
     )
     parser.add_argument(
         "--date-column",
         default="Date",
-        help="Spalte mit dem Messdatum fuer die Zeitanalyse (Standard: Date).",
+        help="Spalte mit dem Messdatum für die Zeitanalyse (Standard: Date).",
     )
     parser.add_argument(
         "--time-column",
         default="UTC Time",
-        help="Spalte mit der Messzeit fuer die Zeitanalyse (Standard: UTC Time).",
+        help="Spalte mit der Messzeit für die Zeitanalyse (Standard: UTC Time).",
     )
     parser.add_argument(
         "--time-segment-gap-min",
         type=non_negative_float,
         default=60.0,
-        help="Neue Zeitphase bei groesserer Messpause in Minuten; 0 deaktiviert "
-        "die Trennung nach Pausen (Standard: 60). Rezepturwechsel erzeugen "
-        "immer eine neue Phase.",
+        help="Neue Zeitphase bei größerer Messpause in Minuten (Standard: 60).",
     )
     return parser.parse_args()
 
 
 def resolve_csv_files(path: Path, file_index: int | None = None) -> list[Path]:
-    """Select exactly one measurement file; never concatenate folder snapshots."""
     path = path.expanduser().resolve()
     if path.is_file():
         return [path]
     if path.is_dir():
         files = []
         required = set(REQUIRED_COLUMNS) - {"m_MG"}
-        candidates = sorted((p for p in path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"),
-                            key=lambda p: (p.name.casefold(), p.name))
+        candidates = sorted(
+            (p for p in path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"),
+            key=lambda p: (p.name.casefold(), p.name),
+        )
         for candidate in candidates:
             try:
                 header = pd.read_csv(candidate, comment="/", skipinitialspace=True, nrows=0)
@@ -187,7 +169,7 @@ def resolve_csv_files(path: Path, file_index: int | None = None) -> list[Path]:
                 print(f"  CSV nicht lesbar, nicht angeboten: {candidate.name} ({exc})")
         if not files:
             raise FileNotFoundError(f"Keine passende Mess-CSV in '{path}' gefunden.")
-        print("\nVerfuegbare Messdateien:")
+        print("\nVerfügbare Messdateien:")
         for number, file in enumerate(files, 1):
             print(f"  {number}) {file.name}")
         if file_index is not None:
@@ -201,13 +183,14 @@ def resolve_csv_files(path: Path, file_index: int | None = None) -> list[Path]:
                 try:
                     answer = input(f"Welche Datei auswerten? Nummer 1..{len(files)}: ").strip()
                 except EOFError as exc:
-                    raise ValueError("Keine Auswahl erhalten. Nutze --input mit einer konkreten "
-                                     "CSV-Datei oder --file-index NUMMER.") from exc
+                    raise ValueError(
+                        "Keine Auswahl erhalten. Nutze --input mit einer konkreten CSV-Datei oder --file-index NUMMER."
+                    ) from exc
                 if answer.isdigit() and 1 <= int(answer) <= len(files):
                     choice = int(answer)
                     break
                 print("Bitte eine der angezeigten Dateinummern eingeben.")
-        print(f"Ausgewaehlt: {files[choice - 1].name}\n")
+        print(f"Ausgewählt: {files[choice - 1].name}\n")
         return [files[choice - 1]]
     raise FileNotFoundError(f"Eingabepfad '{path}' existiert nicht.")
 
@@ -222,9 +205,7 @@ def load_measurements(path: Path, file_index: int | None = None) -> pd.DataFrame
             print(f"  {csv_path.name}: m_MG fehlt; 0 g angenommen.")
         missing = sorted(set(REQUIRED_COLUMNS) - set(frame.columns))
         if missing:
-            raise ValueError(
-                f"In '{csv_path.name}' fehlen Pflichtspalten: {', '.join(missing)}"
-            )
+            raise ValueError(f"In '{csv_path.name}' fehlen Pflichtspalten: {', '.join(missing)}")
         frame["Source_File"] = csv_path.name
         frame["Source_Path"] = str(csv_path)
         frame["Source_Row"] = np.arange(2, len(frame) + 2)
@@ -235,7 +216,6 @@ def load_measurements(path: Path, file_index: int | None = None) -> pd.DataFrame
 
 
 def add_composition(df: pd.DataFrame) -> pd.DataFrame:
-    """Berechnet die Gesamtzusammensetzung aus den Einwaagen in Massen-%."""
     result = df.copy()
     for column in MASS_COLUMNS:
         result[column] = pd.to_numeric(result[column], errors="coerce")
@@ -244,16 +224,8 @@ def add_composition(df: pd.DataFrame) -> pd.DataFrame:
     safe_total = total_mass.where(total_mass > 0)
     result["Mass_Total_g"] = total_mass
     result["Al_wt_pct"] = 100.0 * SL120["Al"] * result["m_SL120"] / safe_total
-    result["IPA_wt_pct"] = (
-        100.0
-        * (SL120["IPA"] * result["m_SL120"] + result["m_IPA"])
-        / safe_total
-    )
-    result["PG_wt_pct"] = (
-        100.0
-        * (SL120["PG"] * result["m_SL120"] + result["m_PG"])
-        / safe_total
-    )
+    result["IPA_wt_pct"] = 100.0 * (SL120["IPA"] * result["m_SL120"] + result["m_IPA"]) / safe_total
+    result["PG_wt_pct"] = 100.0 * (SL120["PG"] * result["m_SL120"] + result["m_PG"]) / safe_total
     result["MG_wt_pct"] = 100.0 * result["m_MG"] / safe_total
     result["Water_wt_pct"] = 100.0 * result["m_Wasser"] / safe_total
     result["Composition_Sum_wt_pct"] = result[
@@ -263,7 +235,6 @@ def add_composition(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _time_group_columns(df: pd.DataFrame) -> list[str]:
-    """Gruppenschluessel, damit gleiche ProbeNr aus mehreren CSVs nicht vermischt werden."""
     columns = [column for column in ("Source_File", "ProbeNr") if column in df.columns]
     return columns or ["Source_File"]
 
@@ -274,12 +245,6 @@ def add_time_information(
     time_column: str,
     segment_gap_min: float,
 ) -> pd.DataFrame:
-    """Liest Zeitstempel ein und erkennt Rezeptur-/Messphasen je Probe.
-
-    Eine neue Phase beginnt bei einer geaenderten Einwaage oder - sofern die
-    Grenze groesser null ist - nach einer groesseren Messpause. Die Phasen
-    erlauben spaeter einen Trend innerhalb weitgehend konstanter Bedingungen.
-    """
     result = df.copy()
     result["Measurement_Time_UTC"] = pd.NaT
     result["Elapsed_Time_h"] = np.nan
@@ -291,15 +256,11 @@ def add_time_information(
     if date_column not in result.columns or time_column not in result.columns:
         print(
             f"  WARNING: Zeitspalten '{date_column}' und/oder '{time_column}' fehlen; "
-            "Zeitanalyse wird uebersprungen."
+            "Zeitanalyse wird übersprungen."
         )
         return result
 
-    combined = (
-        result[date_column].astype("string").str.strip()
-        + " "
-        + result[time_column].astype("string").str.strip()
-    )
+    combined = result[date_column].astype("string").str.strip() + " " + result[time_column].astype("string").str.strip()
     timestamps = pd.to_datetime(
         combined,
         errors="coerce",
@@ -327,9 +288,7 @@ def add_time_information(
             composition_change[1:] = ~np.isclose(
                 masses[1:], masses[:-1], rtol=0.0, atol=1e-9, equal_nan=True
             ).all(axis=1)
-        gap_flag = delta_min.gt(segment_gap_min) if segment_gap_min > 0 else pd.Series(
-            False, index=valid.index
-        )
+        gap_flag = delta_min.gt(segment_gap_min) if segment_gap_min > 0 else pd.Series(False, index=valid.index)
         new_segment = composition_change | gap_flag.to_numpy(bool)
         segment = np.cumsum(new_segment).astype(int)
 
@@ -352,11 +311,7 @@ def _append_reason(reasons: pd.Series, mask: pd.Series, text: str) -> None:
     reasons.loc[mask.fillna(True)] += text + "; "
 
 
-def flag_rows(
-    df: pd.DataFrame,
-    require_quality_flags: bool,
-) -> pd.DataFrame:
-    """Kennzeichnet ungeeignete Zeilen, ohne sie aus der Detaildatei zu loeschen."""
+def flag_rows(df: pd.DataFrame, require_quality_flags: bool) -> pd.DataFrame:
     result = df.copy()
     reasons = pd.Series("", index=result.index, dtype=object)
 
@@ -372,7 +327,7 @@ def flag_rows(
         _append_reason(
             reasons,
             values.isna() | ~values.between(lower, upper),
-            f"{column} ausserhalb {lower:g}..{upper:g}",
+            f"{column} außerhalb {lower:g}..{upper:g}",
         )
 
     invalid_mass = (
@@ -380,7 +335,7 @@ def flag_rows(
         | (result[MASS_COLUMNS] < 0).any(axis=1)
         | (result["Mass_Total_g"] <= 0)
     )
-    _append_reason(reasons, invalid_mass, "ungueltige Einwaage")
+    _append_reason(reasons, invalid_mass, "ungültige Einwaage")
 
     if require_quality_flags:
         for flag in ("SensOK", "Gueltig", "Stabil"):
@@ -394,7 +349,6 @@ def flag_rows(
 
 
 def load_calculator(tables_dir: Path, calculator_path: Path = DEFAULT_CALCULATOR):
-    """Load the explicitly selected MG-capable calculator, not a cached import."""
     calculator_path = calculator_path.expanduser().resolve()
     if not calculator_path.is_file():
         raise FileNotFoundError(f"Calculator nicht gefunden: {calculator_path}")
@@ -405,13 +359,15 @@ def load_calculator(tables_dir: Path, calculator_path: Path = DEFAULT_CALCULATOR
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     if not hasattr(module, "InkCalculator"):
-        raise ImportError("Die ausgewaehlte Datei enthaelt keine InkCalculator-Klasse.")
+        raise ImportError("Die ausgewählte Datei enthält keine InkCalculator-Klasse.")
     calculator = module.InkCalculator(tables_dir=str(tables_dir.expanduser().resolve()))
     for name in ("density", "sound_velocity"):
         method = getattr(calculator, name, None)
         if not callable(method) or "mg" not in inspect.signature(method).parameters:
-            raise ImportError(f"InkCalculator.{name} benoetigt den Parameter mg. "
-                              "Bitte die neue MG-faehige Calculator-Version verwenden.")
+            raise ImportError(
+                f"InkCalculator.{name} benötigt den Parameter mg. "
+                "Bitte die neue MG-fähige Calculator-Version verwenden."
+            )
     return calculator
 
 
@@ -419,9 +375,7 @@ def simulate(df: pd.DataFrame, calculator) -> pd.DataFrame:
     result = df.copy()
     result["Rho_Sim_kg_m3"] = np.nan
     result["C_Sim_m_s"] = np.nan
-    result["Simulation_Status"] = np.where(
-        result["Evaluation_Usable"], "pending", "skipped"
-    )
+    result["Simulation_Status"] = np.where(result["Evaluation_Usable"], "pending", "skipped")
 
     for index, row in result.loc[result["Evaluation_Usable"]].iterrows():
         try:
@@ -432,10 +386,7 @@ def simulate(df: pd.DataFrame, calculator) -> pd.DataFrame:
                 "mg": float(row["MG_wt_pct"]),
                 "temperature": float(row["T_M"]),
             }
-            # InkCalculator: g/cm^3 -> Messdaten: kg/m^3.
             rho_sim = 1000.0 * calculator.density(**arguments)
-            # Some legacy table layouts emit interpolation warnings.
-            # Non-finite model results are rejected explicitly below.
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
@@ -449,10 +400,8 @@ def simulate(df: pd.DataFrame, calculator) -> pd.DataFrame:
             result.at[index, "Rho_Sim_kg_m3"] = rho_sim
             result.at[index, "C_Sim_m_s"] = c_sim
             result.at[index, "Simulation_Status"] = "ok"
-        except Exception as exc:  # Zeilenweise weiterrechnen und Fehler dokumentieren.
-            result.at[index, "Simulation_Status"] = (
-                f"error: {type(exc).__name__}: {exc}"
-            )
+        except Exception as exc:
+            result.at[index, "Simulation_Status"] = f"error: {type(exc).__name__}: {exc}"
 
     ok = result["Simulation_Status"] == "ok"
     for measured, simulated, prefix in (
@@ -464,9 +413,7 @@ def simulate(df: pd.DataFrame, calculator) -> pd.DataFrame:
         result[f"{prefix}_Abs_Error"] = signed.abs().where(ok)
         denominator = result[measured].abs().replace(0.0, np.nan)
         result[f"{prefix}_Rel_Error_pct"] = (100.0 * signed / denominator).where(ok)
-        result[f"{prefix}_Abs_Rel_Error_pct"] = (
-            100.0 * signed.abs() / denominator
-        ).where(ok)
+        result[f"{prefix}_Abs_Rel_Error_pct"] = (100.0 * signed.abs() / denominator).where(ok)
 
     return result
 
@@ -527,7 +474,7 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
                 df.loc[ok, "Rho_M"],
                 df.loc[ok, "Rho_Sim_kg_m3"],
                 "Density",
-                "kg/m^3",
+                "kg/m³",
             ),
             metric_row(
                 df.loc[ok, "C_M"],
@@ -540,7 +487,6 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def make_sample_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Berechnet dieselben Modellkennzahlen separat fuer jede ProbeNr."""
     if "ProbeNr" not in df.columns:
         return pd.DataFrame()
 
@@ -561,8 +507,6 @@ def make_composition_summary(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     composition = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct", "Water_wt_pct"]
-    # Einwaagen sind pro Rezeptur konstant; Rundung verhindert kuenstliche
-    # Gruppen durch Gleitkomma-Rauschen.
     group_columns = []
     for column in composition:
         key = f"_{column}_group"
@@ -593,7 +537,6 @@ def make_composition_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _linear_trend(x: pd.Series, y: pd.Series) -> dict[str, float | int]:
-    """OLS-Zeittrend mit 95-%-Konfidenzintervall und Rangkorrelation."""
     pairs = pd.DataFrame({"x": x, "y": y}).dropna().sort_values("x", kind="stable")
     empty = {
         "N": len(pairs),
@@ -636,14 +579,7 @@ def _within_segment_trend(
     error: pd.Series,
     segment: pd.Series,
 ) -> dict[str, float | int]:
-    """Gemeinsamer Zeittrend nach Entfernen eines Offsets je Rezepturphase.
-
-    Diese Fixed-Effects-Schaetzung reduziert die Verwechslung eines Zeittrends
-    mit unterschiedlichen Modelloffsets nach einer Stoffzugabe.
-    """
-    values = pd.DataFrame(
-        {"x": elapsed_h, "y": error, "segment": segment}
-    ).dropna()
+    values = pd.DataFrame({"x": elapsed_h, "y": error, "segment": segment}).dropna()
     empty = {
         "Within_Segment_N": len(values),
         "Within_Segment_Count": int(values["segment"].nunique()),
@@ -687,19 +623,16 @@ def _within_segment_trend(
 
 
 def make_time_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Zeittrend der Modellresiduen fuer jede Probe und Messgroesse."""
     if "Measurement_Time_UTC" not in df.columns:
         return pd.DataFrame()
-    usable = df.loc[
-        df["Simulation_Status"].eq("ok") & df["Measurement_Time_UTC"].notna()
-    ].copy()
+    usable = df.loc[df["Simulation_Status"].eq("ok") & df["Measurement_Time_UTC"].notna()].copy()
     if usable.empty:
         return pd.DataFrame()
 
     rows: list[dict[str, object]] = []
     group_columns = _time_group_columns(usable)
     specs = (
-        ("Density", "kg/m^3", "Rho_Error"),
+        ("Density", "kg/m³", "Rho_Error"),
         ("Sound velocity", "m/s", "C_Error"),
     )
     for group_key, sample in usable.groupby(group_columns, dropna=False, sort=True):
@@ -739,7 +672,6 @@ def make_time_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def make_time_segment_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Zeittrends innerhalb automatisch erkannter Rezeptur-/Messphasen."""
     if "Time_Segment" not in df.columns:
         return pd.DataFrame()
     usable = df.loc[
@@ -753,7 +685,7 @@ def make_time_segment_summary(df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     group_columns = _time_group_columns(usable) + ["Time_Segment"]
     specs = (
-        ("Density", "kg/m^3", "Rho_Error"),
+        ("Density", "kg/m³", "Rho_Error"),
         ("Sound velocity", "m/s", "C_Error"),
     )
     for group_key, segment in usable.groupby(group_columns, dropna=False, sort=True):
@@ -790,12 +722,11 @@ def identify_high_deviations(
     rho_threshold_pct: float,
     c_threshold_pct: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Markiert und extrahiert Punkte oberhalb der relativen Fehlergrenzen."""
     result = df.copy()
     specs = (
         {
             "property": "Density",
-            "unit": "kg/m^3",
+            "unit": "kg/m³",
             "prefix": "Rho",
             "measured": "Rho_M",
             "simulated": "Rho_Sim_kg_m3",
@@ -842,9 +773,8 @@ def identify_high_deviations(
     for spec in specs:
         prefix = spec["prefix"]
         flag_column = f"{prefix}_High_Deviation"
-        mask = (
-            result["Simulation_Status"].eq("ok")
-            & result[f"{prefix}_Abs_Rel_Error_pct"].ge(spec["threshold"])
+        mask = result["Simulation_Status"].eq("ok") & result[f"{prefix}_Abs_Rel_Error_pct"].ge(
+            spec["threshold"]
         )
         result[flag_column] = mask
         selected = result.loc[
@@ -908,7 +838,7 @@ def create_plot(
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     specs: list[tuple[str, str, str, str, str]] = [
-        ("Rho_M", "Rho_Sim_kg_m3", "Rho_Error", "Density", "kg/mÂ³"),
+        ("Rho_M", "Rho_Sim_kg_m3", "Rho_Error", "Density", "kg/m³"),
         ("C_M", "C_Sim_m_s", "C_Error", "Sound velocity", "m/s"),
     ]
     cmap = plt.get_cmap("viridis")
@@ -935,12 +865,12 @@ def create_plot(
         ax.set_ylabel(f"Simulated [{unit}]")
         ax.set_title(f"{title}: measured vs. simulated")
         ax.grid(alpha=0.25)
-        fig.colorbar(scatter, ax=ax, label="Temperature [Â°C]")
+        fig.colorbar(scatter, ax=ax, label="Temperature [°C]")
 
         ax = axes[1, column]
         ax.scatter(temperatures, ok[error_col], s=25, alpha=0.75, color="#1f4e79")
         ax.axhline(0.0, color="#555555", ls="--", lw=1.2)
-        ax.set_xlabel("Temperature [Â°C]")
+        ax.set_xlabel("Temperature [°C]")
         ax.set_ylabel(f"Simulation - measurement [{unit}]")
         ax.set_title(f"{title}: error vs. temperature")
         ax.grid(alpha=0.25)
@@ -952,7 +882,6 @@ def create_plot(
 
 
 def _probe_file_label(probe: object) -> str:
-    """Erzeugt einen stabilen, dateisystemtauglichen Bezeichner fuer ProbeNr."""
     try:
         numeric = float(probe)
         if np.isfinite(numeric) and numeric.is_integer():
@@ -967,9 +896,8 @@ def _probe_file_label(probe: object) -> str:
 
 
 def create_sample_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
-    """Erstellt fuer jede ProbeNr einen eigenen Messung-Simulation-Plot."""
     if "ProbeNr" not in df.columns:
-        print("  WARNING: Spalte 'ProbeNr' fehlt; Einzelplots werden uebersprungen.")
+        print("  WARNING: Spalte 'ProbeNr' fehlt; Einzelplots werden übersprungen.")
         return []
 
     sample_dir = output_dir / "sample_plots"
@@ -977,7 +905,7 @@ def create_sample_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     for probe, sample in df.groupby("ProbeNr", dropna=False, sort=True):
         usable = sample.loc[sample["Simulation_Status"] == "ok"]
         if usable.empty:
-            print(f"  Probe {probe}: keine simulierten Messpunkte, Plot uebersprungen.")
+            print(f"  Probe {probe}: keine simulierten Messpunkte, Plot übersprungen.")
             continue
         sample_dir.mkdir(parents=True, exist_ok=True)
         output_path = sample_dir / f"Sample_{_probe_file_label(probe)}_model_accuracy.png"
@@ -994,13 +922,10 @@ def create_sample_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
 
 
 def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
-    """Stellt die signierten Modellabweichungen je Probe ueber der Zeit dar."""
     required = {"Measurement_Time_UTC", "Elapsed_Time_h", "Time_Segment"}
     if not required.issubset(df.columns):
         return []
-    usable = df.loc[
-        df["Simulation_Status"].eq("ok") & df["Measurement_Time_UTC"].notna()
-    ].copy()
+    usable = df.loc[df["Simulation_Status"].eq("ok") & df["Measurement_Time_UTC"].notna()].copy()
     if usable.empty:
         return []
 
@@ -1010,7 +935,7 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     group_columns = _time_group_columns(usable)
     multiple_files = usable["Source_File"].nunique() > 1 if "Source_File" in usable else False
     specs = (
-        ("Rho_Error", "Dichte", "Simulation - Messung [kg/mÂ³]", "kg/mÂ³"),
+        ("Rho_Error", "Dichte", "Simulation - Messung [kg/m³]", "kg/m³"),
         ("C_Error", "Schallgeschwindigkeit", "Simulation - Messung [m/s]", "m/s"),
     )
 
@@ -1023,9 +948,7 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
         if multiple_files:
             source_stem = Path(str(identifiers.get("Source_File", "data"))).stem
             file_prefix = _probe_file_label(source_stem) + "_"
-        output_path = time_dir / (
-            f"{file_prefix}Sample_{_probe_file_label(probe)}_error_over_time.png"
-        )
+        output_path = time_dir / f"{file_prefix}Sample_{_probe_file_label(probe)}_error_over_time.png"
 
         fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
         segment_ids = sorted(sample["Time_Segment"].dropna().astype(int).unique())
@@ -1045,14 +968,12 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
             trend = _linear_trend(sample["Elapsed_Time_h"], sample[error_column])
             slope = float(trend["Slope_per_h"])
             if np.isfinite(slope):
-                x_line = np.array(
-                    [sample["Elapsed_Time_h"].min(), sample["Elapsed_Time_h"].max()]
-                )
+                x_line = np.array([sample["Elapsed_Time_h"].min(), sample["Elapsed_Time_h"].max()])
                 y_line = float(trend["Intercept"]) + slope * x_line
                 ax.plot(x_line, y_line, color="black", lw=1.6, ls="--", label="Gesamttrend")
                 annotation = (
                     f"Trend: {slope:+.4g} {unit}/h\n"
-                    f"p = {float(trend['Slope_p_value']):.3g}, RÂ² = {float(trend['Time_R2']):.3f}"
+                    f"p = {float(trend['Slope_p_value']):.3g}, R² = {float(trend['Time_R2']):.3f}"
                 )
                 ax.text(
                     0.015,
@@ -1064,7 +985,7 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
                     bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.82},
                 )
             ax.axhline(0.0, color="#666666", lw=1.0)
-            ax.set_title(f"{title}: Modellabweichung ueber der Zeit")
+            ax.set_title(f"{title}: Modellabweichung über der Zeit")
             ax.set_ylabel(ylabel)
             ax.grid(alpha=0.25)
 
@@ -1074,7 +995,7 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
         start = sample["Measurement_Time_UTC"].min()
         end = sample["Measurement_Time_UTC"].max()
         fig.suptitle(
-            f"Probe {probe}: Residuen ueber der Zeit ({start} bis {end} UTC)", fontsize=13
+            f"Probe {probe}: Residuen über der Zeit ({start} bis {end} UTC)", fontsize=13
         )
         fig.tight_layout(rect=(0, 0, 1, 0.96))
         fig.savefig(output_path, dpi=180, bbox_inches="tight")
@@ -1148,7 +1069,6 @@ def print_summary(summary: pd.DataFrame) -> None:
 
 
 def _print_deviation_rows(group: pd.DataFrame, max_rows: int) -> None:
-    """Gibt die Detailzeilen einer bereits ausgewaehlten Ausreissergruppe aus."""
     group = group.sort_values("Abs_Rel_Error_pct", ascending=False, kind="stable")
     shown = group if max_rows == 0 else group.head(max_rows)
     display_columns = [
@@ -1192,14 +1112,10 @@ def _print_deviation_rows(group: pd.DataFrame, max_rows: int) -> None:
     ):
         print(display.round(5).to_string(index=False))
     if len(shown) < len(group):
-        print(
-            f"  ... {len(group) - len(shown)} weitere; vollstaendig in "
-            "high_deviation_points.csv."
-        )
+        print(f"  ... {len(group) - len(shown)} weitere; vollständig in high_deviation_points.csv.")
 
 
 def _matching_group(df: pd.DataFrame, identifiers: dict[str, object]) -> pd.DataFrame:
-    """Filtert eine Ergebnistabelle mit denselben Probenschluesseln."""
     if df.empty:
         return df
     mask = pd.Series(True, index=df.index)
@@ -1258,7 +1174,7 @@ def _print_time_analysis(sample_time: pd.DataFrame) -> None:
     both_significant = rho_p < 0.05 and sound_p < 0.05
     if direction_matches and both_significant:
         verdict = (
-            "Deutliche IPA-kompatible Signatur: Dichte-Residuum faellt und "
+            "Deutliche IPA-kompatible Signatur: Dichte-Residuum fällt und "
             "Schall-Residuum steigt; beide Gesamttrends sind signifikant (p < 0,05)."
         )
     elif direction_matches:
@@ -1268,7 +1184,7 @@ def _print_time_analysis(sample_time: pd.DataFrame) -> None:
         )
     else:
         verdict = (
-            "Keine konsistente IPA-Signatur aus beiden Kanaelen: erwartet waeren "
+            "Keine konsistente IPA-Signatur aus beiden Kanälen: erwartet wären "
             "fallendes Dichte- und steigendes Schall-Residuum."
         )
     print(f"\nVerdunstungsindikator: {verdict}")
@@ -1276,13 +1192,12 @@ def _print_time_analysis(sample_time: pd.DataFrame) -> None:
     max_gap = float(sample_time["Max_Gap_h"].max())
     if np.isfinite(max_gap) and max_gap > 1.0:
         print(
-            f"WARNUNG: Groesste Messpause = {max_gap:.2f} h. Gesamttrend und Dauer "
+            f"WARNUNG: Größte Messpause = {max_gap:.2f} h. Gesamttrend und Dauer "
             "nur zusammen mit Versuchsprotokoll interpretieren."
         )
 
 
 def _print_time_segment_analysis(sample_segments: pd.DataFrame) -> None:
-    """Kompakte Konsolentabelle der Trends je konstanter Rezepturphase."""
     print("\nZeittrends innerhalb der automatisch erkannten Phasen")
     print("-" * 132)
     if sample_segments.empty:
@@ -1290,9 +1205,7 @@ def _print_time_segment_analysis(sample_segments: pd.DataFrame) -> None:
         return
 
     density = sample_segments.loc[sample_segments["Property"].eq("Density")].copy()
-    sound = sample_segments.loc[
-        sample_segments["Property"].eq("Sound velocity")
-    ].copy()
+    sound = sample_segments.loc[sample_segments["Property"].eq("Sound velocity")].copy()
     keys = ["Source_File", "ProbeNr", "Time_Segment"]
     keys = [column for column in keys if column in sample_segments.columns]
     base_columns = keys + [
@@ -1359,12 +1272,11 @@ def print_sample_analyses(
     rho_threshold_pct: float,
     c_threshold_pct: float,
 ) -> None:
-    """Gibt Kennzahlen und Ausreisser getrennt fuer jede ProbeNr aus."""
     print("\n" + "#" * 132)
     print("AUSWERTUNG NACH PROBE")
     print("#" * 132)
     if "ProbeNr" not in df.columns:
-        print("Spalte 'ProbeNr' fehlt; keine probenspezifische Auswertung moeglich.")
+        print("Spalte 'ProbeNr' fehlt; keine probenspezifische Auswertung möglich.")
         return
 
     outlier_specs = (
@@ -1395,7 +1307,7 @@ def print_sample_analyses(
         failed = len(sample) - simulated - skipped
         print("\n" + "=" * 132)
         print(
-            f"PROBE {probe}{source_note} | {simulated} simuliert, {skipped} uebersprungen, "
+            f"PROBE {probe}{source_note} | {simulated} simuliert, {skipped} übersprungen, "
             f"{failed} Simulationsfehler"
         )
         print("=" * 132)
@@ -1407,23 +1319,19 @@ def print_sample_analyses(
             print(metrics[metric_columns].round(5).to_string(index=False))
 
         _print_time_analysis(_matching_group(time_summary, identifiers))
-        _print_time_segment_analysis(
-            _matching_group(time_segment_summary, identifiers)
-        )
+        _print_time_segment_analysis(_matching_group(time_segment_summary, identifiers))
 
-        print("\nAusreisser dieser Probe")
+        print("\nAusreißer dieser Probe")
         sample_deviations = _matching_group(deviations, identifiers)
 
         for property_name, threshold in outlier_specs:
-            group = sample_deviations.loc[
-                sample_deviations["Property"].eq(property_name)
-            ]
+            group = sample_deviations.loc[sample_deviations["Property"].eq(property_name)]
             print(
                 f"\n{property_name}: {len(group)} Punkt(e) mit absoluter relativer "
                 f"Abweichung >= {threshold:g} %"
             )
             if group.empty:
-                print("  Keine Ausreisser oberhalb dieser Grenze.")
+                print("  Keine Ausreißer oberhalb dieser Grenze.")
             else:
                 _print_deviation_rows(group, max_rows)
 
@@ -1467,7 +1375,7 @@ def main() -> int:
     skipped = int((evaluated["Simulation_Status"] == "skipped").sum())
     failed = len(evaluated) - simulated - skipped
     print(
-        f"\nAuswertung: {simulated} simuliert, {skipped} uebersprungen, "
+        f"\nAuswertung: {simulated} simuliert, {skipped} übersprungen, "
         f"{failed} Simulationsfehler."
     )
     print_summary(summary)
