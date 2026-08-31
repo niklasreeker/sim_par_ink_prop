@@ -1,0 +1,4 @@
+experiment_key,mode,rate_g_h,objective,objective_at_zero,relative_improvement_pct,boundary_warning
+C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (14)_korrigiert.csv|Probe=3,estimate,1.4775085376428985,14.234733112963848,166.69738802562694,91.46073415932858,False
+C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (14)_korrigiert.csv|Probe=4,estimate,1.3163594670674208,51.60488854063599,301.10684839685996,82.861602512401,False
+C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (14)_korrigiert.csv|Probe=5,estimate,0.7602918321154785,90.31061798335256,420.17429455794667,78.50639147776383,False
