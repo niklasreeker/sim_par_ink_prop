@@ -16,8 +16,9 @@ Only IPA evaporates.  For a cumulative IPA loss E(t),
     m_IPA,eff(t) = m_IPA,nominal(t) - E(t)
     m_total,eff(t) = m_total,nominal(t) - E(t)
 
-and all mass percentages are recalculated.  SL120 is interpreted as 20 wt-%
-Al, 40 wt-% IPA and 40 wt-% PG.
+and all mass percentages, including methyl gallate (MG), are recalculated.
+SL120 is interpreted as 20 wt-% Al, 40 wt-% IPA and 40 wt-% PG. MG is read
+from the ``m_MG`` column and is assumed not to evaporate.
 
 The evaporation rate can be supplied from an independent gravimetric test or
 estimated from within-phase changes of density and sound velocity.  During
@@ -47,7 +48,7 @@ Predict one point::
 
     python residual_calibration_field.py predict \
       --model results/residual_calibration/calibration_field.json \
-      --al 1.8 --ipa 4.0 --pg 4.5 --temperature 23.0
+      --al 1.8 --ipa 4.0 --pg 4.5 --mg 0.227 --temperature 23.0
 
 Evaluate a saved field against another CSV::
 
@@ -65,6 +66,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import inspect
 import json
 import math
 import sys
@@ -85,7 +87,7 @@ from scipy.optimize import minimize_scalar
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
-SCRIPT_VERSION = "2.0-interactive"
+SCRIPT_VERSION = "2.1-mg"
 DEFAULT_INPUT = SCRIPT_DIR / "measurement_data"
 DEFAULT_OUTPUT = SCRIPT_DIR / "results" / "residual_calibration"
 DEFAULT_TABLES = REPO_DIR / "tables_parameters"
@@ -94,7 +96,14 @@ DEFAULT_CALCULATOR = REPO_DIR / "ink_calculator.py"
 SL120 = {"Al": 0.20, "IPA": 0.40, "PG": 0.40}
 MASS_COLUMNS = ["m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"]
 MEASUREMENT_COLUMNS = ["Rho_M", "C_M", "T_M"]
-COMPOSITION_COLUMNS = ["Al_wt_pct_eff", "IPA_wt_pct_eff", "PG_wt_pct_eff"]
+COMPOSITION_COLUMNS = [
+    "Al_wt_pct_eff",
+    "IPA_wt_pct_eff",
+    "PG_wt_pct_eff",
+    "MG_wt_pct_eff",
+]
+FIELD_AXES = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct"]
+LEGACY_FIELD_AXES = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct"]
 
 
 def finite_float(value: str) -> float:
@@ -259,6 +268,12 @@ def build_parser() -> argparse.ArgumentParser:
     predict.add_argument("--al", type=finite_float, required=True)
     predict.add_argument("--ipa", type=finite_float, required=True)
     predict.add_argument("--pg", type=finite_float, required=True)
+    predict.add_argument(
+        "--mg",
+        type=finite_float,
+        default=0.0,
+        help="Methyl gallate mass percentage (default: 0).",
+    )
     predict.add_argument("--temperature", type=finite_float, required=True)
     predict.add_argument(
         "--json", action="store_true", help="Print the prediction as JSON."
@@ -299,6 +314,9 @@ def load_measurements(paths: Iterable[Path]) -> pd.DataFrame:
     for path in resolve_csv_files(paths):
         frame = pd.read_csv(path, comment="/", skipinitialspace=True)
         frame.columns = [str(column).strip() for column in frame.columns]
+        if "m_MG" not in frame.columns:
+            frame["m_MG"] = 0.0
+            print(f"Note: {path.name} has no m_MG column; MG was set to 0 g.")
         frame["Source_File"] = path.name
         frame["Source_Path"] = str(path)
         frame["Source_Row"] = np.arange(2, len(frame) + 2)
@@ -388,17 +406,21 @@ def add_nominal_component_masses(df: pd.DataFrame) -> pd.DataFrame:
     result["m_MG_nom_g"] = result["m_MG"]
     result["m_Total_nom_g"] = result[MASS_COLUMNS].sum(axis=1, min_count=5)
     invalid = (
-        result[["m_Al_nom_g", "m_IPA_nom_g", "m_PG_nom_g", "m_Water_nom_g"]]
+        result[
+            [
+                "m_Al_nom_g",
+                "m_IPA_nom_g",
+                "m_PG_nom_g",
+                "m_MG_nom_g",
+                "m_Water_nom_g",
+            ]
+        ]
         .lt(0)
         .any(axis=1)
         | result["m_Total_nom_g"].le(0)
     )
     if invalid.any():
         raise ValueError(f"Found {int(invalid.sum())} rows with invalid component masses.")
-    if result["m_MG_nom_g"].fillna(0).abs().gt(1e-12).any():
-        raise ValueError(
-            "m_MG is non-zero, but the current InkCalculator has no MG model."
-        )
     return result
 
 
@@ -427,9 +449,16 @@ def apply_ipa_evaporation(
     result["Al_wt_pct_eff"] = 100.0 * result["m_Al_nom_g"] / denominator
     result["IPA_wt_pct_eff"] = 100.0 * result["m_IPA_eff_g"] / denominator
     result["PG_wt_pct_eff"] = 100.0 * result["m_PG_nom_g"] / denominator
+    result["MG_wt_pct_eff"] = 100.0 * result["m_MG_nom_g"] / denominator
     result["Water_wt_pct_eff"] = 100.0 * result["m_Water_nom_g"] / denominator
     result["Composition_Sum_wt_pct"] = result[
-        ["Al_wt_pct_eff", "IPA_wt_pct_eff", "PG_wt_pct_eff", "Water_wt_pct_eff"]
+        [
+            "Al_wt_pct_eff",
+            "IPA_wt_pct_eff",
+            "PG_wt_pct_eff",
+            "MG_wt_pct_eff",
+            "Water_wt_pct_eff",
+        ]
     ].sum(axis=1)
     return result
 
@@ -462,7 +491,16 @@ def load_calculator(calculator_path: Path, tables_dir: Path):
     calculator_class = getattr(module, "InkCalculator", None)
     if calculator_class is None:
         raise ImportError(f"InkCalculator class not found in {calculator_path}")
-    return calculator_class(tables_dir=str(tables_dir))
+    calculator = calculator_class(tables_dir=str(tables_dir))
+    for method_name in ("density", "sound_velocity"):
+        method = getattr(calculator, method_name, None)
+        parameters = inspect.signature(method).parameters if method else {}
+        if "mg" not in parameters:
+            raise ImportError(
+                f"{calculator_path.name} does not provide an 'mg' argument in "
+                f"InkCalculator.{method_name}(). Use the MG-enabled calculator."
+            )
+    return calculator
 
 
 def simulate_rows(df: pd.DataFrame, calculator) -> pd.DataFrame:
@@ -476,6 +514,7 @@ def simulate_rows(df: pd.DataFrame, calculator) -> pd.DataFrame:
                 "al": float(row["Al_wt_pct_eff"]),
                 "ipa": float(row["IPA_wt_pct_eff"]),
                 "pg": float(row["PG_wt_pct_eff"]),
+                "mg": float(row["MG_wt_pct_eff"]),
                 "temperature": float(row["T_M"]),
             }
             with warnings.catch_warnings():
@@ -749,6 +788,7 @@ def build_nodes(simulated: pd.DataFrame) -> pd.DataFrame:
                 "Al_wt_pct": float(np.average(phase["Al_wt_pct_eff"])),
                 "IPA_wt_pct": float(np.average(phase["IPA_wt_pct_eff"])),
                 "PG_wt_pct": float(np.average(phase["PG_wt_pct_eff"])),
+                "MG_wt_pct": float(np.average(phase["MG_wt_pct_eff"])),
                 "Water_wt_pct": float(np.average(phase["Water_wt_pct_eff"])),
                 "Temperature_Mean_C": float(np.average(phase["T_M"])),
                 "Temperature_Min_C": float(phase["T_M"].min()),
@@ -769,7 +809,7 @@ def build_nodes(simulated: pd.DataFrame) -> pd.DataFrame:
 
 
 def node_scaler(nodes: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    x = nodes[["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct"]].to_numpy(float)
+    x = nodes[FIELD_AXES].to_numpy(float)
     centre = np.mean(x, axis=0)
     scale = np.ptp(x, axis=0)
     fallback = np.std(x, axis=0)
@@ -798,13 +838,23 @@ def model_payload(
 
     return {
         "schema": "ink-residual-calibration-field",
-        "schema_version": 1,
+        "schema_version": 2,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "equation": "measurement = physics + A(w)",
         "residual_definition": "A = measurement - physics",
-        "composition_axes": ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct"],
+        "composition_axes": FIELD_AXES,
         "temperature_model": "InkCalculator only; A(w) has no learned temperature term",
-        "evaporation_assumption": "Only IPA evaporates; loss is cumulative from the first timestamp per source file and ProbeNr.",
+        "evaporation_assumption": (
+            "Only IPA evaporates; MG is non-volatile in the mass balance. "
+            "IPA loss is cumulative from the first timestamp per source file "
+            "and ProbeNr."
+        ),
+        "methyl_gallate": {
+            "source_mass_column": "m_MG",
+            "effective_composition_column": "MG_wt_pct_eff",
+            "residual_field_axis": "MG_wt_pct",
+            "physics_argument": "mg",
+        },
         "evaporation": [summary.__dict__ for summary in evaporation_summaries],
         "interpolation": {
             "method": "scaled_inverse_distance_weighting",
@@ -869,14 +919,41 @@ def warn_on_provenance_mismatch(
         )
 
 
+def model_composition_axes(model: dict[str, Any]) -> list[str]:
+    """Return and validate the composition axes stored in a field."""
+    axes = model.get("composition_axes", LEGACY_FIELD_AXES)
+    if not isinstance(axes, list) or not axes:
+        raise ValueError("Calibration model has invalid composition_axes metadata.")
+    allowed = set(FIELD_AXES)
+    unknown = [axis for axis in axes if axis not in allowed]
+    if unknown:
+        raise ValueError(f"Unsupported composition axes in calibration model: {unknown}")
+    if len(set(axes)) != len(axes):
+        raise ValueError("Calibration model contains duplicate composition axes.")
+    return list(axes)
+
+
 def idw_residual(
-    model: dict[str, Any], al: float, ipa: float, pg: float
+    model: dict[str, Any], al: float, ipa: float, pg: float, mg: float = 0.0
 ) -> dict[str, Any]:
     nodes = pd.DataFrame(model["nodes"])
-    coordinates = nodes[["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct"]].to_numpy(float)
-    target = np.array([al, ipa, pg], dtype=float)
-    centre = np.asarray(model["interpolation"]["centre"], dtype=float)
+    axes = model_composition_axes(model)
+    missing = [axis for axis in axes if axis not in nodes.columns]
+    if missing:
+        raise ValueError(f"Calibration nodes are missing composition axes: {missing}")
+    coordinates = nodes[axes].to_numpy(float)
+    target_by_axis = {
+        "Al_wt_pct": al,
+        "IPA_wt_pct": ipa,
+        "PG_wt_pct": pg,
+        "MG_wt_pct": mg,
+    }
+    target = np.array([target_by_axis[axis] for axis in axes], dtype=float)
     scale = np.asarray(model["interpolation"]["scale"], dtype=float)
+    if scale.shape != target.shape or np.any(~np.isfinite(scale)) or np.any(scale <= 0):
+        raise ValueError(
+            "Calibration interpolation scale does not match composition_axes."
+        )
     distances = np.linalg.norm((coordinates - target) / scale, axis=1)
     nearest = int(np.argmin(distances))
     requested_neighbors = int(model["interpolation"].get("neighbors", 4))
@@ -913,11 +990,10 @@ def idw_residual(
     minimum = coordinates.min(axis=0)
     maximum = coordinates.max(axis=0)
     outside_axes = [
-        name
-        for name, value, low, high in zip(
-            ("Al", "IPA", "PG"), target, minimum, maximum
-        )
-        if value < low or value > high
+        axis.removesuffix("_wt_pct")
+        for axis, value, low, high in zip(axes, target, minimum, maximum)
+        if value < low - 1e-10 * max(1.0, abs(low), abs(high))
+        or value > high + 1e-10 * max(1.0, abs(low), abs(high))
     ]
     output.update(
         {
@@ -926,15 +1002,30 @@ def idw_residual(
             "Neighbor_Count": int(len(indexes)),
             "Outside_Bounding_Box": bool(outside_axes),
             "Outside_Axes": outside_axes,
+            "Field_Composition_Axes": axes,
+            "MG_Axis_Used": "MG_wt_pct" in axes,
         }
     )
     return output
 
 
-def physics_prediction(calculator, al: float, ipa: float, pg: float, temperature: float):
-    if min(al, ipa, pg) < 0 or al + ipa + pg > 100:
+def physics_prediction(
+    calculator,
+    al: float,
+    ipa: float,
+    pg: float,
+    temperature: float,
+    mg: float = 0.0,
+):
+    if min(al, ipa, pg, mg) < 0 or al + ipa + pg + mg > 100:
         raise ValueError("Composition must be non-negative and sum to at most 100 wt-%.")
-    arguments = {"al": al, "ipa": ipa, "pg": pg, "temperature": temperature}
+    arguments = {
+        "al": al,
+        "ipa": ipa,
+        "pg": pg,
+        "mg": mg,
+        "temperature": temperature,
+    }
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         rho = 1000.0 * float(calculator.density(**arguments))
@@ -943,15 +1034,24 @@ def physics_prediction(calculator, al: float, ipa: float, pg: float, temperature
 
 
 def predict_one(
-    model: dict[str, Any], calculator, al: float, ipa: float, pg: float, temperature: float
+    model: dict[str, Any],
+    calculator,
+    al: float,
+    ipa: float,
+    pg: float,
+    temperature: float,
+    mg: float = 0.0,
 ) -> dict[str, Any]:
-    rho_physics, c_physics = physics_prediction(calculator, al, ipa, pg, temperature)
-    correction = idw_residual(model, al, ipa, pg)
+    rho_physics, c_physics = physics_prediction(
+        calculator, al, ipa, pg, temperature, mg=mg
+    )
+    correction = idw_residual(model, al, ipa, pg, mg=mg)
     return {
         "Al_wt_pct": float(al),
         "IPA_wt_pct": float(ipa),
         "PG_wt_pct": float(pg),
-        "Water_wt_pct": float(100.0 - al - ipa - pg),
+        "MG_wt_pct": float(mg),
+        "Water_wt_pct": float(100.0 - al - ipa - pg - mg),
         "Temperature_C": float(temperature),
         "Rho_Physics_kg_m3": rho_physics,
         "A_Rho_kg_m3": correction["A_Rho_kg_m3"],
@@ -964,6 +1064,8 @@ def predict_one(
         "Nearest_Normalized_Distance": correction["Nearest_Normalized_Distance"],
         "Outside_Bounding_Box": correction["Outside_Bounding_Box"],
         "Outside_Axes": correction["Outside_Axes"],
+        "Field_Composition_Axes": correction["Field_Composition_Axes"],
+        "MG_Axis_Used": correction["MG_Axis_Used"],
     }
 
 
@@ -1016,6 +1118,14 @@ def make_diagnostic_plot(rows: pd.DataFrame, nodes: pd.DataFrame, path: Path) ->
     axes[1, 1].set_xlabel("IPA [wt-%]")
     axes[1, 1].set_ylabel("PG [wt-%]")
     axes[1, 1].grid(alpha=0.25)
+    for _, node in nodes[nodes["MG_wt_pct"].gt(1e-9)].iterrows():
+        axes[1, 1].annotate(
+            f"MG {node['MG_wt_pct']:.3f}%",
+            (node["IPA_wt_pct"], node["PG_wt_pct"]),
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=7,
+        )
     fig.colorbar(scatter, ax=axes[1, 1], label="A_c [m/s]")
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1032,6 +1142,7 @@ def print_nodes(nodes: pd.DataFrame) -> None:
         "Al_wt_pct",
         "IPA_wt_pct",
         "PG_wt_pct",
+        "MG_wt_pct",
         "A_Rho_kg_m3",
         "A_C_m_s",
     ]
@@ -1112,13 +1223,24 @@ def predict_command(args: argparse.Namespace) -> None:
     model = load_model(args.model)
     warn_on_provenance_mismatch(model, args.calculator, args.tables)
     calculator = load_calculator(args.calculator, args.tables)
-    result = predict_one(model, calculator, args.al, args.ipa, args.pg, args.temperature)
+    result = predict_one(
+        model,
+        calculator,
+        args.al,
+        args.ipa,
+        args.pg,
+        args.temperature,
+        mg=args.mg,
+    )
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
         return
     print("Hybrid prediction")
     print("-" * 72)
-    print(f"Composition:  Al={args.al:.6f} %, IPA={args.ipa:.6f} %, PG={args.pg:.6f} %")
+    print(
+        f"Composition:  Al={args.al:.6f} %, IPA={args.ipa:.6f} %, "
+        f"PG={args.pg:.6f} %, MG={args.mg:.6f} %"
+    )
     print(f"Temperature:  {args.temperature:.3f} C")
     print(
         f"Density:      physics={result['Rho_Physics_kg_m3']:.6f}, "
@@ -1131,6 +1253,11 @@ def predict_command(args: argparse.Namespace) -> None:
     print(f"Node distance:{result['Nearest_Normalized_Distance']:.6f}")
     if result["Outside_Bounding_Box"]:
         print(f"WARNING: Composition is outside calibration bounds for {result['Outside_Axes']}.")
+    if args.mg > 0.0 and not result["MG_Axis_Used"]:
+        print(
+            "WARNING: Physics includes MG, but this legacy residual field has "
+            "no MG composition axis."
+        )
 
 
 def evaluate_command(args: argparse.Namespace) -> None:
@@ -1163,6 +1290,7 @@ def evaluate_command(args: argparse.Namespace) -> None:
             float(row["Al_wt_pct_eff"]),
             float(row["IPA_wt_pct_eff"]),
             float(row["PG_wt_pct_eff"]),
+            mg=float(row["MG_wt_pct_eff"]),
         )
         predictions.append(
             {
@@ -1171,6 +1299,8 @@ def evaluate_command(args: argparse.Namespace) -> None:
                 "A_C_Field_m_s": correction["A_C_m_s"],
                 "Calibration_Distance": correction["Nearest_Normalized_Distance"],
                 "Calibration_Extrapolation": correction["Outside_Bounding_Box"],
+                "Calibration_Outside_Axes": ",".join(correction["Outside_Axes"]),
+                "Calibration_MG_Axis_Used": correction["MG_Axis_Used"],
             }
         )
     prediction_frame = pd.DataFrame(predictions).set_index("index") if predictions else pd.DataFrame()
@@ -1203,6 +1333,12 @@ def evaluate_command(args: argparse.Namespace) -> None:
     extrapolated = int(corrected["Calibration_Extrapolation"].fillna(False).sum())
     if extrapolated:
         print(f"WARNING: {extrapolated} rows are outside the calibration bounding box.")
+    mg_rows = corrected["MG_wt_pct_eff"].fillna(0.0).gt(0.0)
+    if mg_rows.any() and "MG_wt_pct" not in model_composition_axes(model):
+        print(
+            "WARNING: Physics includes MG, but the residual field has no MG axis; "
+            f"{int(mg_rows.sum())} MG-containing rows used legacy residual interpolation."
+        )
     if args.evaporation_mode == "estimate":
         print(
             "WARNING: Evaporation was inferred from the evaluation measurements. "
@@ -1482,11 +1618,16 @@ def interactive_arguments() -> list[str]:
         al = _ask_float_value("Al content in wt-%", minimum=0.0)
         ipa = _ask_float_value("IPA content in wt-%", minimum=0.0)
         pg = _ask_float_value("PG content in wt-%", minimum=0.0)
-        while al + ipa + pg > 100:
-            print("Al + IPA + PG must not exceed 100 wt-%. Please enter the values again.")
+        mg = _ask_float_value("MG content in wt-%", default=0.0, minimum=0.0)
+        while al + ipa + pg + mg > 100:
+            print(
+                "Al + IPA + PG + MG must not exceed 100 wt-%. "
+                "Please enter the values again."
+            )
             al = _ask_float_value("Al content in wt-%", minimum=0.0)
             ipa = _ask_float_value("IPA content in wt-%", minimum=0.0)
             pg = _ask_float_value("PG content in wt-%", minimum=0.0)
+            mg = _ask_float_value("MG content in wt-%", default=0.0, minimum=0.0)
         temperature = _ask_float_value("Temperature in deg C", default=25.0)
         print("\nCalculating the hybrid prediction ...")
         return [
@@ -1499,6 +1640,8 @@ def interactive_arguments() -> list[str]:
             str(ipa),
             "--pg",
             str(pg),
+            "--mg",
+            str(mg),
             "--temperature",
             str(temperature),
         ]
