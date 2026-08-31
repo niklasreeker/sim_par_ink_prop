@@ -1,3 +1,0 @@
-experiment_key,mode,rate_g_h,objective,objective_at_zero,relative_improvement_pct,boundary_warning
-Kennfeld_v2 (13).csv|Probe=3,estimate,1.6386345729364258,2530.251159779164,2677.2796528411454,5.491712190243327,False
-Kennfeld_v2 (13).csv|Probe=5,estimate,0.6843629717934785,2.91163448840095,34.339241874286955,91.52097038408652,False

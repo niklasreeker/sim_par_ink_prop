@@ -59,16 +59,26 @@ Evaluate a saved field against another CSV::
 
 The signed calibration residual always uses ``measurement - physics`` so it
 can be added directly to the InkCalculator result.
+
+Output folders are automatic and never requested interactively:
+    results/calibration_field/<samples>__<sources>__<timestamp>/
+    results/calibrated_model_evaluation/<field>__<sources>__<samples>__<timestamp>/
+Open evaluation_report.html for the phase-averaged graphical comparison.
+Detailed rows remain available for auditing. Water/air reference rows are
+saved separately and do not become ink calibration points.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import html
 import importlib.util
 import inspect
 import json
 import math
+import re
 import sys
 import warnings
 from dataclasses import dataclass
@@ -87,9 +97,10 @@ from scipy.optimize import minimize_scalar
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
-SCRIPT_VERSION = "2.1-mg"
+SCRIPT_VERSION = "3.0-phase-report"
 DEFAULT_INPUT = SCRIPT_DIR / "measurement_data"
-DEFAULT_OUTPUT = SCRIPT_DIR / "results" / "residual_calibration"
+CALIBRATION_ROOT = SCRIPT_DIR / "results" / "calibration_field"
+EVALUATION_ROOT = SCRIPT_DIR / "results" / "calibrated_model_evaluation"
 DEFAULT_TABLES = REPO_DIR / "tables_parameters"
 DEFAULT_CALCULATOR = REPO_DIR / "ink_calculator.py"
 
@@ -224,7 +235,6 @@ def build_parser() -> argparse.ArgumentParser:
     add_input_arguments(build)
     add_common_calculator_arguments(build)
     add_evaporation_arguments(build, default_mode="estimate")
-    build.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     build.add_argument(
         "--quality-mode",
         choices=["auto", "flags", "low-noise", "all"],
@@ -286,9 +296,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_input_arguments(evaluate)
     add_common_calculator_arguments(evaluate)
     add_evaporation_arguments(evaluate, default_mode="fixed")
-    evaluate.add_argument(
-        "--output", type=Path, default=DEFAULT_OUTPUT / "evaluation"
-    )
+    evaluate.add_argument("--quality-mode", choices=["auto", "flags", "low-noise", "all"],
+                          default="auto", help="Phase summary selection (default: auto).")
+    evaluate.add_argument("--minimum-points-per-phase", type=int, default=5)
+    evaluate.add_argument("--settling-fraction", type=float, default=0.30)
+    evaluate.add_argument("--low-noise-keep-fraction", type=float, default=0.60)
 
     return parser
 
@@ -367,7 +379,7 @@ def add_timestamps_and_phases(
             result[column] = pd.to_numeric(result[column], errors="coerce")
 
     result["Experiment_Key"] = (
-        result["Source_File"].astype(str)
+        result["Source_Path"].astype(str)
         + "|Probe="
         + result["ProbeNr"].astype(str)
     )
@@ -417,6 +429,7 @@ def add_nominal_component_masses(df: pd.DataFrame) -> pd.DataFrame:
         ]
         .lt(0)
         .any(axis=1)
+        | ~np.isfinite(result[MASS_COLUMNS]).all(axis=1)
         | result["m_Total_nom_g"].le(0)
     )
     if invalid.any():
@@ -436,8 +449,8 @@ def apply_ipa_evaporation(
     result["IPA_Evaporation_Rate_g_h"] = rates.astype(float)
     result["IPA_Loss_g"] = rates * result["Experiment_Elapsed_h"]
     available = result["m_IPA_nom_g"]
-    if (result["IPA_Loss_g"] >= available).any():
-        row = result.loc[result["IPA_Loss_g"] >= available].iloc[0]
+    if (result["IPA_Loss_g"] > available).any():
+        row = result.loc[result["IPA_Loss_g"] > available].iloc[0]
         raise ValueError(
             "Estimated IPA loss reaches the available IPA mass at "
             f"{row['Experiment_Key']}, source row {int(row['Source_Row'])}."
@@ -556,7 +569,8 @@ def select_calibration_rows(
         raise ValueError("--low-noise-keep-fraction must be in (0, 1].")
 
     result = df.copy()
-    finite = result[MEASUREMENT_COLUMNS].apply(pd.to_numeric, errors="coerce").notna().all(axis=1)
+    numeric_measurements = result[MEASUREMENT_COLUMNS].apply(pd.to_numeric, errors="coerce")
+    finite = np.isfinite(numeric_measurements).all(axis=1)
     finite &= result["m_Total_nom_g"].gt(0)
     finite &= _safe_numeric(result, "N", 1).gt(0)
     finite &= _safe_numeric(result, "SensOK", 1).eq(1)
@@ -1152,9 +1166,70 @@ def print_nodes(nodes: pd.DataFrame) -> None:
         print(nodes[columns].round(6).to_string(index=False))
 
 
-def build_command(args: argparse.Namespace) -> None:
+def safe_name(value: str, limit: int = 56) -> str:
+    """Create a portable folder component; a hash preserves long-name identity."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value)).strip("_") or "unnamed"
+    if len(cleaned) > limit:
+        suffix = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:8]
+        cleaned = cleaned[:limit - 9] + "_" + suffix
+    return cleaned
+
+
+def source_manifest(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    records = []
+    for source, part in frame.groupby("Source_Path", sort=False):
+        path = Path(source)
+        records.append({"path": str(path), "filename": path.name,
+                        "sha256": sha256_file(path),
+                        "samples": sorted(pd.to_numeric(part["ProbeNr"]).astype(int).unique().tolist())})
+    return records
+
+
+def automatic_output(kind: str, frame: pd.DataFrame, model_path: Path | None = None) -> Path:
+    """Allocate a new run directory without overwriting previous runs."""
+    probes = "probe_" + "_".join(str(v) for v in sorted(
+        pd.to_numeric(frame["ProbeNr"]).astype(int).unique()))
+    sources = "__".join(Path(v).stem for v in frame["Source_Path"].unique())
+    if kind == "build":
+        root = CALIBRATION_ROOT
+        label = safe_name(probes, 36) + "__" + safe_name(sources, 48)
+    else:
+        root = EVALUATION_ROOT
+        field = model_path.parent.name if model_path.name == "calibration_field.json" else model_path.stem
+        label = ("field_" + safe_name(field, 48) + "__data_" + safe_name(sources, 48)
+                 + "__" + safe_name(probes, 28))
+    root.mkdir(parents=True, exist_ok=True)
+    label += "__" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    for counter in range(10000):
+        path = root / (label if counter == 0 else f"{label}_{counter:03d}")
+        try:
+            path.mkdir()
+            return path.resolve()
+        except FileExistsError:
+            continue
+    raise RuntimeError("Could not allocate a unique output directory.")
+
+
+def load_ink_input(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep reference measurements separate from an ink residual field."""
     raw = filter_samples(load_measurements(args.input), args.samples)
     require_columns(raw, MASS_COLUMNS + MEASUREMENT_COLUMNS)
+    numeric = raw[MASS_COLUMNS].apply(pd.to_numeric, errors="coerce")
+    solutes = numeric[["m_SL120", "m_IPA", "m_PG", "m_MG"]]
+    reference = (pd.to_numeric(raw["ProbeNr"], errors="coerce").isin([100, 101])
+                 | (solutes.notna().all(axis=1) & solutes.eq(0).all(axis=1)))
+    excluded = raw.loc[reference].copy()
+    if len(excluded):
+        print(f"NOTE: {len(excluded)} water/air reference rows are excluded from the ink field "
+              "and saved separately.")
+    raw = raw.loc[~reference].copy()
+    if raw.empty:
+        raise ValueError("The selection contains only reference measurements, not ink.")
+    return raw, excluded
+
+
+def build_command(args: argparse.Namespace) -> None:
+    raw, reference_rows = load_ink_input(args)
     prepared = add_nominal_component_masses(
         add_timestamps_and_phases(raw, args.date_column, args.time_column, args.phase_gap_min)
     )
@@ -1183,15 +1258,22 @@ def build_command(args: argparse.Namespace) -> None:
         print(f"WARNING: {int(failures.sum())} simulations failed:\n{examples}")
     nodes = build_nodes(simulated)
     payload = model_payload(nodes, evaporation_summaries, args)
-
-    output = args.output.expanduser().resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    payload["training_data"] = source_manifest(raw)
+    payload["training_measurement_keys"] = measurement_keys(simulated.loc[
+        simulated["Selected_For_Calibration"] & simulated["Simulation_Status"].eq("ok")]).tolist()
+    output = automatic_output("build", raw)
+    payload["field_name"] = output.name
     model_path = output / "calibration_field.json"
     nodes_path = output / "calibration_nodes.csv"
     rows_path = output / "calibration_measurements.csv"
     evaporation_path = output / "evaporation_summary.csv"
     plot_path = output / "calibration_diagnostics.png"
     save_json(payload, model_path)
+    save_json({"operation": "build", "output_directory": str(output),
+               "training_data": payload["training_data"],
+               "reference_rows_excluded": len(reference_rows)}, output / "run_manifest.json")
+    if len(reference_rows):
+        reference_rows.to_csv(output / "excluded_reference_measurements.csv", index=False)
     nodes.to_csv(nodes_path, index=False)
     simulated.to_csv(rows_path, index=False)
     pd.DataFrame([summary.__dict__ for summary in evaporation_summaries]).to_csv(
@@ -1260,16 +1342,218 @@ def predict_command(args: argparse.Namespace) -> None:
         )
 
 
+def measurement_keys(frame: pd.DataFrame) -> pd.Series:
+    """Identify the same acquisition across differently named CSV snapshots."""
+    def key(row):
+        text = "|".join([str(int(row["ProbeNr"])), str(row["Measurement_Time_UTC"])]
+                        + [f"{float(row[c]):.9g}" for c in MASS_COLUMNS])
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return frame.apply(key, axis=1)
+
+
+def phase_evaluation_summary(rows: pd.DataFrame) -> pd.DataFrame:
+    """Average paired predictions and observations, never predict at mean inputs.
+
+    Contiguous phases are kept separate across files, samples and time gaps.
+    SD describes variation among the retained timestamps, not a confidence
+    interval or independent preparation repeatability.
+    """
+    records = []
+    source_ids = {path: i + 1 for i, path in enumerate(rows["Source_Path"].unique())}
+    for (_, phase), all_rows in rows.groupby(["Experiment_Key", "Phase"], sort=False):
+        selected = all_rows.loc[all_rows["Selected_For_Evaluation"]]
+        first = all_rows.iloc[0]
+        probe = int(first["ProbeNr"])
+        composition_rows = selected if len(selected) else all_rows
+        record = {
+            "Phase_ID": f"F{source_ids[first['Source_Path']]}-P{probe}-S{int(phase)}",
+            "Source_File": first["Source_File"], "Source_Path": first["Source_Path"],
+            "ProbeNr": probe, "Phase": int(phase), "N_Total": len(all_rows),
+            "N_Selected": len(selected), "N_Excluded": len(all_rows) - len(selected),
+            "Selection_Method": "; ".join(sorted(selected["Selection_Method"].unique())),
+            "Start_UTC": str(all_rows["Measurement_Time_UTC"].min()),
+            "End_UTC": str(all_rows["Measurement_Time_UTC"].max()),
+            "N_Extrapolated": int(selected["Calibration_Extrapolation"].fillna(False).sum()),
+            "N_Training_Overlap": int(selected["Training_Overlap"].sum()),
+            "Temperature_Mean_C": float(composition_rows["T_M"].mean()),
+            "Temperature_Min_C": float(composition_rows["T_M"].min()),
+            "Temperature_Max_C": float(composition_rows["T_M"].max()),
+        }
+        for component in ("Al", "IPA", "PG", "MG", "Water"):
+            values = composition_rows[f"{component}_wt_pct_eff"]
+            record[f"{component}_wt_pct"] = float(values.mean())
+            record[f"{component}_Min_wt_pct"] = float(values.min())
+            record[f"{component}_Max_wt_pct"] = float(values.max())
+        record.update({c: float(first[c]) for c in MASS_COLUMNS})
+        for prefix, measured, physics, hybrid in (
+            ("Rho", "Rho_M", "Rho_Physics_kg_m3", "Rho_Hybrid_kg_m3"),
+            ("C", "C_M", "C_Physics_m_s", "C_Hybrid_m_s"),
+        ):
+            for label, column in (("Measured", measured), ("Physics", physics), ("Hybrid", hybrid)):
+                values = selected[column]
+                for stat, value in (("Mean", values.mean()), ("SD", values.std(ddof=1)),
+                                    ("Min", values.min()), ("Max", values.max())):
+                    record[f"{prefix}_{stat}_{label}"] = float(value)
+            errors = selected[hybrid] - selected[measured]
+            record[f"{prefix}_Mean_Error"] = float(errors.mean())
+            record[f"{prefix}_SD_Error"] = float(errors.std(ddof=1))
+            record[f"{prefix}_RMSE_Within_Phase"] = float(np.sqrt((errors ** 2).mean()))
+        records.append(record)
+    return pd.DataFrame(records)
+
+
+def phase_accuracy_metrics(phases: pd.DataFrame) -> pd.DataFrame:
+    """Weight every usable recipe phase once, regardless of recording length."""
+    usable = phases.loc[phases["N_Selected"].gt(0)]
+    records = []
+    for prefix, name in (("Rho", "Density"), ("C", "Sound velocity")):
+        for model in ("Physics", "Hybrid"):
+            result = metric_row(usable[f"{prefix}_Mean_Measured"],
+                                usable[f"{prefix}_Mean_{model}"], f"{name} - {model.lower()}")
+            result["Weighting"] = "One equal weight per phase mean"
+            records.append(result)
+    return pd.DataFrame(records)
+
+
+def create_phase_plots(phases: pd.DataFrame, output: Path) -> list[Path]:
+    """Create paginated comparisons and a parity plot; bars are +/- one SD."""
+    usable = phases.loc[phases["N_Selected"].gt(0)].copy()
+    if usable.empty:
+        return []
+    paths = []
+    specs = (("Rho", "Density", "kg/m3"), ("C", "Sound velocity", "m/s"))
+    for page, start in enumerate(range(0, len(usable), 12), 1):
+        part = usable.iloc[start:start + 12]
+        x = np.arange(len(part))
+        fig, axes = plt.subplots(2, 2, figsize=(14, 9), constrained_layout=True)
+        for column, (prefix, name, unit) in enumerate(specs):
+            axis = axes[0, column]
+            for label, offset, color, marker in (("Measured", -0.10, "#1d4e89", "o"),
+                                                  ("Hybrid", 0.10, "#bd4f22", "s")):
+                axis.errorbar(x + offset, part[f"{prefix}_Mean_{label}"],
+                              yerr=part[f"{prefix}_SD_{label}"].fillna(0),
+                              fmt=marker, color=color, capsize=3, label=f"{label}: mean +/- SD")
+            axis.set(title=name, ylabel=unit)
+            axis.legend(fontsize=8)
+            axis = axes[1, column]
+            axis.axhline(0, color="#555555", linewidth=1)
+            axis.errorbar(x, part[f"{prefix}_Mean_Error"],
+                          yerr=part[f"{prefix}_SD_Error"].fillna(0), fmt="o",
+                          color="#6a3d7d", capsize=3)
+            axis.set(title="Paired error: hybrid - measured", ylabel=unit)
+            for axis in axes[:, column]:
+                axis.set_xticks(x)
+                axis.set_xticklabels(part["Phase_ID"], rotation=45, ha="right", fontsize=8)
+                axis.grid(axis="y", alpha=0.2)
+        fig.suptitle(f"Recipe-phase comparison | page {page}\n"
+                     "Predictions evaluated at each retained timestamp; SD is not a confidence interval",
+                     fontsize=12)
+        path = output / f"hybrid_phase_comparison_{page:02d}.png"
+        fig.savefig(path, dpi=160)
+        plt.close(fig)
+        paths.append(path)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 6), constrained_layout=True)
+    for axis, (prefix, name, unit) in zip(axes, specs):
+        measured = usable[f"{prefix}_Mean_Measured"]
+        predicted = usable[f"{prefix}_Mean_Hybrid"]
+        groups = usable.groupby("ProbeNr", sort=True)
+        for i, (probe, group) in enumerate(groups):
+            axis.errorbar(group[f"{prefix}_Mean_Measured"], group[f"{prefix}_Mean_Hybrid"],
+                          xerr=group[f"{prefix}_SD_Measured"].fillna(0),
+                          yerr=group[f"{prefix}_SD_Hybrid"].fillna(0),
+                          fmt="o", color=plt.get_cmap("tab10")(i % 10), alpha=0.85,
+                          capsize=2, label=f"Probe {probe}")
+        low, high = min(measured.min(), predicted.min()), max(measured.max(), predicted.max())
+        padding = max(float(high - low) * 0.1, 0.05)
+        axis.plot([low - padding, high + padding], [low - padding, high + padding],
+                  "--", color="#555555", label="Ideal: prediction = measurement")
+        axis.set(xlabel=f"Measured phase mean [{unit}]", ylabel=f"Hybrid phase mean [{unit}]",
+                 title=name)
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+    fig.suptitle("Hybrid parity | one point per phase, horizontal and vertical bars: +/- one SD")
+    path = output / "hybrid_parity.png"
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+    paths.insert(0, path)
+    return paths
+
+
+def write_evaluation_report(phases: pd.DataFrame, metrics: pd.DataFrame,
+                            metadata: dict[str, Any], plots: list[Path], output: Path) -> Path:
+    """Write a portable HTML report with embedded plots and readable tables."""
+    def table(frame):
+        return frame.to_html(index=False, escape=True, border=0, na_rep="n/a",
+                             float_format=lambda value: f"{value:.4f}")
+    def heading(text):
+        return f"<h2>{html.escape(text)}</h2>"
+    overview_columns = ["Phase_ID", "Source_File", "ProbeNr", "N_Selected", "N_Excluded",
+                        "Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct",
+                        "Temperature_Min_C", "Temperature_Max_C", "N_Extrapolated"]
+    sections = [heading("Accuracy of phase means (equal phase weighting)"), table(metrics),
+                heading("Recipe phases and selection"), table(phases[overview_columns])]
+    for prefix, label in (("Rho", "Density [kg/m3]"), ("C", "Sound velocity [m/s]")):
+        cols = ["Phase_ID", "N_Selected", f"{prefix}_Mean_Measured", f"{prefix}_SD_Measured",
+                f"{prefix}_Min_Measured", f"{prefix}_Max_Measured",
+                f"{prefix}_Mean_Hybrid", f"{prefix}_SD_Hybrid",
+                f"{prefix}_Mean_Error", f"{prefix}_SD_Error", f"{prefix}_RMSE_Within_Phase"]
+        labels = {c: c.removeprefix(prefix + "_").replace("_", " ") for c in cols}
+        sections += [heading(label), table(phases[cols].rename(columns=labels))]
+    images = []
+    for path in plots:
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        images.append(f'<img alt="{html.escape(path.stem)}" src="data:image/png;base64,{encoded}">')
+    overlap = metadata["training_overlap_selected_rows"]
+    caution = (f"{overlap} selected rows also occur in the calibration data. This is at least "
+               "partly an in-sample comparison, not an independent validation." if overlap else
+               "No matching training acquisition was detected. This alone does not prove independent validation.")
+    if not metadata["training_overlap_check_available"]:
+        caution = "This older field has no acquisition fingerprints; training-data overlap cannot be verified."
+        if metadata["legacy_possible_overlap"]:
+            caution += " Source filename and sample labels suggest possible overlap with training data."
+    source_list = "".join(f"<li>{html.escape(item['path'])} | Probe {item['samples']}</li>"
+                          for item in metadata["evaluation_data"])
+    document = """<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Hybrid ink model evaluation</title><style>
+body{font:15px/1.55 system-ui,sans-serif;color:#172b3a;background:#f4f7fa;margin:0;padding:32px}
+main{max-width:1440px;margin:auto;background:white;padding:28px;border-radius:12px}
+h1,h2{color:#173d61}h2{margin-top:32px}img{width:100%;height:auto;margin:16px 0}
+table{border-collapse:collapse;display:block;overflow-x:auto;font-size:12px;margin:16px 0}
+th,td{padding:9px 12px;border-bottom:1px solid #dce3ea;text-align:right;white-space:nowrap}
+th{background:#eaf0f6}tr:nth-child(even){background:#f7f9fb}li{overflow-wrap:anywhere}
+.note{padding:14px;background:#fff5db;border-left:4px solid #c68613}
+</style><main><h1>Hybrid model vs. measured ink</h1>"""
+    document += f"<p><b>Calibration field:</b> {html.escape(metadata['model_path'])}</p><ul>{source_list}</ul>"
+    document += f"<p><b>Selection:</b> {html.escape(metadata['quality_mode'])}; "
+    document += f"<b>Evaporation:</b> {html.escape(metadata['evaporation_mode'])} (IPA only).</p>"
+    document += f'<p class="note">{html.escape(caution)}</p>'
+    document += """<p>Each point represents one contiguous recipe phase within one sample and source file.
+Repeated phases and different days are kept separate. Measured and predicted means use exactly the
+same selected timestamps. Temperature and effective composition are applied before averaging.
+Bars show sample standard deviation (SD, ddof=1); for one retained timestamp SD is unavailable.
+SD includes within-phase drift and is neither a confidence interval nor a model-uncertainty band.
+Measured min/max and paired-error SD are listed below. Phase-mean metrics weight each phase equally;
+they do not replace inspection of within-phase errors. Extrapolation counts are bounding-box flags,
+not a guarantee that points inside the bounds are well supported.</p>"""
+    document += "".join(images + sections) + "</main></html>"
+    path = output / "evaluation_report.html"
+    path.write_text(document, encoding="utf-8")
+    return path
+
+
 def evaluate_command(args: argparse.Namespace) -> None:
     model = load_model(args.model)
     warn_on_provenance_mismatch(model, args.calculator, args.tables)
-    raw = filter_samples(load_measurements(args.input), args.samples)
-    require_columns(raw, MASS_COLUMNS + MEASUREMENT_COLUMNS)
+    raw, reference_rows = load_ink_input(args)
     prepared = add_nominal_component_masses(
         add_timestamps_and_phases(raw, args.date_column, args.time_column, args.phase_gap_min)
     )
-    prepared["Selected_For_Calibration"] = True
-    prepared["Selection_Method"] = "evaluation"
+    # Reuse the same quality rules; these flags select evaluation rows only.
+    prepared = select_calibration_rows(
+        prepared, args.quality_mode, args.minimum_points_per_phase,
+        args.settling_fraction, args.low_noise_keep_fraction,
+    )
     calculator = load_calculator(args.calculator, args.tables)
     rates, summaries = determine_evaporation_rates(
         prepared,
@@ -1303,33 +1587,71 @@ def evaluate_command(args: argparse.Namespace) -> None:
                 "Calibration_MG_Axis_Used": correction["MG_Axis_Used"],
             }
         )
-    prediction_frame = pd.DataFrame(predictions).set_index("index") if predictions else pd.DataFrame()
+    if not predictions:
+        raise ValueError("No measurement row could be simulated. Check the calculator and input data.")
+    prediction_frame = pd.DataFrame(predictions).set_index("index")
     corrected = corrected.join(prediction_frame)
     corrected["Rho_Hybrid_kg_m3"] = corrected["Rho_Physics_kg_m3"] + corrected["A_Rho_Field_kg_m3"]
     corrected["C_Hybrid_m_s"] = corrected["C_Physics_m_s"] + corrected["A_C_Field_m_s"]
+    paired_columns = ["Rho_M", "C_M", "Rho_Physics_kg_m3", "C_Physics_m_s",
+                      "Rho_Hybrid_kg_m3", "C_Hybrid_m_s"]
+    corrected["Selected_For_Evaluation"] = (corrected.pop("Selected_For_Calibration")
+        & corrected["Simulation_Status"].eq("ok") & np.isfinite(corrected[paired_columns]).all(axis=1))
+    training_keys = set(model.get("training_measurement_keys", []))
+    corrected["Training_Overlap"] = measurement_keys(corrected).isin(training_keys)
+    selected = corrected.loc[corrected["Selected_For_Evaluation"]]
+    if selected.empty:
+        raise ValueError("No selected paired observations remain for evaluation.")
 
     summary_rows = []
     for measured, physics, hybrid, label in (
         ("Rho_M", "Rho_Physics_kg_m3", "Rho_Hybrid_kg_m3", "Density"),
         ("C_M", "C_Physics_m_s", "C_Hybrid_m_s", "Sound velocity"),
     ):
-        physics_row = metric_row(corrected[measured], corrected[physics], f"{label} - physics")
-        hybrid_row = metric_row(corrected[measured], corrected[hybrid], f"{label} - hybrid")
+        physics_row = metric_row(selected[measured], selected[physics], f"{label} - physics")
+        hybrid_row = metric_row(selected[measured], selected[hybrid], f"{label} - hybrid")
         summary_rows.extend([physics_row, hybrid_row])
     summary = pd.DataFrame(summary_rows)
 
-    output = args.output.expanduser().resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    phases = phase_evaluation_summary(corrected)
+    phase_metrics = phase_accuracy_metrics(phases)
+    output = automatic_output("evaluate", raw, args.model.resolve())
     comparison_path = output / "hybrid_model_comparison.csv"
     summary_path = output / "hybrid_accuracy_summary.csv"
     evaporation_path = output / "evaluation_evaporation_summary.csv"
     corrected.to_csv(comparison_path, index=False)
     summary.to_csv(summary_path, index=False)
     pd.DataFrame([item.__dict__ for item in summaries]).to_csv(evaporation_path, index=False)
+    phases.to_csv(output / "hybrid_evaluation_by_phase.csv", index=False)
+    phase_metrics.to_csv(output / "hybrid_phase_accuracy_summary.csv", index=False)
+    if len(reference_rows):
+        reference_rows.to_csv(output / "excluded_reference_measurements.csv", index=False)
+    metadata = {
+        "operation": "evaluate", "script_version": SCRIPT_VERSION,
+        "model_path": str(args.model.resolve()), "model_sha256": sha256_file(args.model.resolve()),
+        "evaluation_data": source_manifest(raw), "output_directory": str(output),
+        "quality_mode": args.quality_mode, "evaporation_mode": args.evaporation_mode,
+        "minimum_points_per_phase": args.minimum_points_per_phase,
+        "settling_fraction": args.settling_fraction,
+        "low_noise_keep_fraction": args.low_noise_keep_fraction,
+        "reference_rows_excluded": len(reference_rows),
+        "training_overlap_selected_rows": int(selected["Training_Overlap"].sum()),
+        "training_overlap_check_available": bool(training_keys),
+        "legacy_possible_overlap": any(
+            (str(node.get("Source_File")), int(node.get("ProbeNr", -1)))
+            in set(zip(raw["Source_File"].astype(str), raw["ProbeNr"].astype(int)))
+            for node in model["nodes"]
+        ) if not training_keys else False,
+        "calculator_path": str(args.calculator.resolve()),
+        "calculator_sha256": sha256_file(args.calculator.resolve()),
+    }
+    save_json(metadata, output / "run_manifest.json")
+    plots = create_phase_plots(phases, output)
+    report = write_evaluation_report(phases, phase_metrics, metadata, plots, output)
 
-    print("\nEvaluation summary")
+    print("\nEvaluation summary: equal weight per phase mean")
     print("-" * 100)
-    print(summary.round(6).to_string(index=False))
+    print(phase_metrics.round(6).to_string(index=False))
     extrapolated = int(corrected["Calibration_Extrapolation"].fillna(False).sum())
     if extrapolated:
         print(f"WARNING: {extrapolated} rows are outside the calibration bounding box.")
@@ -1346,6 +1668,13 @@ def evaluate_command(args: argparse.Namespace) -> None:
         )
     print(f"\nSaved comparison: {comparison_path}")
     print(f"Saved summary:    {summary_path}")
+    print(f"Open graphical report: {report}")
+    print(f"Selected rows: {len(selected)} / {len(corrected)}; usable phases: "
+          f"{int(phases['N_Selected'].gt(0).sum())}.")
+    if metadata["training_overlap_selected_rows"]:
+        print("WARNING: Evaluation includes training acquisitions; this is not an independent test.")
+    elif not training_keys:
+        print("NOTE: This older field cannot be checked reliably for training-data overlap.")
 
 
 def _display_path(path: Path) -> str:
@@ -1599,10 +1928,7 @@ def interactive_arguments() -> list[str]:
             default=1,
         )
         quality_modes = {1: "auto", 2: "flags", 3: "low-noise", 4: "all"}
-        label = "all" if samples == ["all"] else "_".join(samples)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_output = SCRIPT_DIR / "results" / f"calibration_probe_{label}_{timestamp}"
-        output = _ask_path("Output directory", default=default_output)
+        print(f"\nOutput root (automatic run folder): {CALIBRATION_ROOT}")
         print("\nStarting calibration build with the selected settings ...")
         return (
             ["build", "--input"]
@@ -1610,7 +1936,7 @@ def interactive_arguments() -> list[str]:
             + ["--samples"]
             + samples
             + evaporation
-            + ["--quality-mode", quality_modes[quality_choice], "--output", str(output)]
+            + ["--quality-mode", quality_modes[quality_choice]]
         )
 
     if command_choice == 2:
@@ -1650,9 +1976,8 @@ def interactive_arguments() -> list[str]:
     paths = _choose_csv_files()
     samples = _ask_samples(paths, prefer_sample_three=False)
     evaporation = _interactive_evaporation_arguments(for_evaluation=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    default_output = SCRIPT_DIR / "results" / f"evaluation_{timestamp}"
-    output = _ask_path("Output directory", default=default_output)
+    print(f"\nOutput root (automatic run folder): {EVALUATION_ROOT}")
+    print("Phase summaries use automatic quality selection; raw rows are retained.")
     print("\nStarting external CSV evaluation ...")
     return (
         ["evaluate", "--model", str(model), "--input"]
@@ -1660,7 +1985,6 @@ def interactive_arguments() -> list[str]:
         + ["--samples"]
         + samples
         + evaporation
-        + ["--output", str(output)]
     )
 
 

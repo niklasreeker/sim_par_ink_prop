@@ -24,6 +24,12 @@ Optionen zeigt ``--help``. Der signierte Fehler ist immer
 ``InkCalculator.density`` liefert g/cm^3 und wird deshalb mit 1000
 multipliziert.
 
+Bei mehreren Messdateien wird genau eine Datei anhand einer nummerierten
+Auswahl eingelesen. MG wird als eigener Massenanteil an den MG-faehigen
+Calculator uebergeben. Die Zusammensetzung basiert weiterhin auf den
+Einwaagen ohne Verdunstungskorrektur; fuer verdunstungskorrigierte
+Hybridvergleiche ist residual_calibration_field.py vorgesehen.
+
 Die Zeitanalyse verwendet den Zeitstempel aus ``Date`` und ``UTC Time``.
 Ein negativer Dichtetrend zusammen mit einem positiven Schalltrend ist im
 vorliegenden Stoffsystem mit IPA-Verlust vereinbar. Er ist jedoch ohne
@@ -34,6 +40,8 @@ Nachweis fuer IPA-Verdunstung.
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import inspect
 import sys
 import warnings
 from pathlib import Path
@@ -52,6 +60,7 @@ REPO_DIR = SCRIPT_DIR.parent
 DEFAULT_INPUT = SCRIPT_DIR / "measurement_data"
 DEFAULT_OUTPUT = SCRIPT_DIR / "results" / "model_accuracy"
 DEFAULT_TABLES = REPO_DIR / "tables_parameters"
+DEFAULT_CALCULATOR = REPO_DIR / "ink_calculator.py"
 
 # Massenanteile des Konzentrats SL120 laut Herstellerangabe.
 SL120 = {"Al": 0.20, "IPA": 0.40, "PG": 0.40}
@@ -69,7 +78,7 @@ VALUE_RANGES = {
 
 def non_negative_float(value: str) -> float:
     number = float(value)
-    if number < 0:
+    if not np.isfinite(number) or number < 0:
         raise argparse.ArgumentTypeError("Wert muss groesser oder gleich 0 sein.")
     return number
 
@@ -93,6 +102,14 @@ def parse_args() -> argparse.Namespace:
         help="CSV-Datei oder Verzeichnis mit CSV-Dateien (Standard: measurement_data).",
     )
     parser.add_argument(
+        "--file-index", type=int, default=None,
+        help="Optional: angezeigte Dateinummer ohne interaktive Rueckfrage auswaehlen.",
+    )
+    parser.add_argument(
+        "--calculator", type=Path, default=DEFAULT_CALCULATOR,
+        help="Pfad zur MG-faehigen ink_calculator.py (Standard: Repository-Hauptverzeichnis).",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
@@ -109,12 +126,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Nur Zeilen verwenden, deren vorhandene Flags SensOK, Gueltig "
         "und Stabil jeweils 1 sind.",
-    )
-    parser.add_argument(
-        "--allow-mg-as-water",
-        action="store_true",
-        help="MG-Anteil als Wasserrest behandeln. Ohne diese Option werden "
-        "Rezepturen mit MG uebersprungen, da ink_calculator.py kein MG-Modell hat.",
     )
     parser.add_argument(
         "--rho-outlier-threshold-pct",
@@ -155,29 +166,67 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_csv_files(path: Path) -> list[Path]:
+def resolve_csv_files(path: Path, file_index: int | None = None) -> list[Path]:
+    """Select exactly one measurement file; never concatenate folder snapshots."""
     path = path.expanduser().resolve()
     if path.is_file():
         return [path]
     if path.is_dir():
-        files = sorted(path.glob("*.csv"))
-        if files:
-            return files
-        raise FileNotFoundError(f"Keine CSV-Datei in '{path}' gefunden.")
+        files = []
+        required = set(REQUIRED_COLUMNS) - {"m_MG"}
+        candidates = sorted((p for p in path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"),
+                            key=lambda p: (p.name.casefold(), p.name))
+        for candidate in candidates:
+            try:
+                header = pd.read_csv(candidate, comment="/", skipinitialspace=True, nrows=0)
+                if required.issubset(str(c).strip() for c in header.columns):
+                    files.append(candidate)
+                else:
+                    print(f"  Keine Messdatei, nicht angeboten: {candidate.name}")
+            except (OSError, ValueError, UnicodeError) as exc:
+                print(f"  CSV nicht lesbar, nicht angeboten: {candidate.name} ({exc})")
+        if not files:
+            raise FileNotFoundError(f"Keine passende Mess-CSV in '{path}' gefunden.")
+        print("\nVerfuegbare Messdateien:")
+        for number, file in enumerate(files, 1):
+            print(f"  {number}) {file.name}")
+        if file_index is not None:
+            if not 1 <= file_index <= len(files):
+                raise ValueError(f"--file-index muss zwischen 1 und {len(files)} liegen.")
+            choice = file_index
+        elif len(files) == 1:
+            choice = 1
+        else:
+            while True:
+                try:
+                    answer = input(f"Welche Datei auswerten? Nummer 1..{len(files)}: ").strip()
+                except EOFError as exc:
+                    raise ValueError("Keine Auswahl erhalten. Nutze --input mit einer konkreten "
+                                     "CSV-Datei oder --file-index NUMMER.") from exc
+                if answer.isdigit() and 1 <= int(answer) <= len(files):
+                    choice = int(answer)
+                    break
+                print("Bitte eine der angezeigten Dateinummern eingeben.")
+        print(f"Ausgewaehlt: {files[choice - 1].name}\n")
+        return [files[choice - 1]]
     raise FileNotFoundError(f"Eingabepfad '{path}' existiert nicht.")
 
 
-def load_measurements(path: Path) -> pd.DataFrame:
+def load_measurements(path: Path, file_index: int | None = None) -> pd.DataFrame:
     parts: list[pd.DataFrame] = []
-    for csv_path in resolve_csv_files(path):
+    for csv_path in resolve_csv_files(path, file_index=file_index):
         frame = pd.read_csv(csv_path, comment="/", skipinitialspace=True)
         frame.columns = [str(column).strip() for column in frame.columns]
+        if "m_MG" not in frame.columns:
+            frame["m_MG"] = 0.0
+            print(f"  {csv_path.name}: m_MG fehlt; 0 g angenommen.")
         missing = sorted(set(REQUIRED_COLUMNS) - set(frame.columns))
         if missing:
             raise ValueError(
                 f"In '{csv_path.name}' fehlen Pflichtspalten: {', '.join(missing)}"
             )
         frame["Source_File"] = csv_path.name
+        frame["Source_Path"] = str(csv_path)
         frame["Source_Row"] = np.arange(2, len(frame) + 2)
         parts.append(frame)
         print(f"  {csv_path.name}: {len(frame)} Messpunkte")
@@ -306,7 +355,6 @@ def _append_reason(reasons: pd.Series, mask: pd.Series, text: str) -> None:
 def flag_rows(
     df: pd.DataFrame,
     require_quality_flags: bool,
-    allow_mg_as_water: bool,
 ) -> pd.DataFrame:
     """Kennzeichnet ungeeignete Zeilen, ohne sie aus der Detaildatei zu loeschen."""
     result = df.copy()
@@ -327,26 +375,12 @@ def flag_rows(
             f"{column} ausserhalb {lower:g}..{upper:g}",
         )
 
-    # Das Dichtemodell in ink_calculator.py akzeptiert nur 20 bis 30 degC.
-    _append_reason(
-        reasons,
-        result["T_M"].isna() | ~result["T_M"].between(20.0, 30.0),
-        "T_M ausserhalb Modellbereich 20..30 degC",
-    )
-
     invalid_mass = (
-        result[MASS_COLUMNS].isna().any(axis=1)
+        ~np.isfinite(result[MASS_COLUMNS]).all(axis=1)
         | (result[MASS_COLUMNS] < 0).any(axis=1)
         | (result["Mass_Total_g"] <= 0)
     )
     _append_reason(reasons, invalid_mass, "ungueltige Einwaage")
-
-    if not allow_mg_as_water:
-        _append_reason(
-            reasons,
-            result["MG_wt_pct"].fillna(np.inf).abs() > 1e-9,
-            "MG wird von ink_calculator.py nicht modelliert",
-        )
 
     if require_quality_flags:
         for flag in ("SensOK", "Gueltig", "Stabil"):
@@ -359,12 +393,26 @@ def flag_rows(
     return result
 
 
-def load_calculator(tables_dir: Path):
-    if str(REPO_DIR) not in sys.path:
-        sys.path.insert(0, str(REPO_DIR))
-    from ink_calculator import InkCalculator
-
-    return InkCalculator(tables_dir=str(tables_dir.expanduser().resolve()))
+def load_calculator(tables_dir: Path, calculator_path: Path = DEFAULT_CALCULATOR):
+    """Load the explicitly selected MG-capable calculator, not a cached import."""
+    calculator_path = calculator_path.expanduser().resolve()
+    if not calculator_path.is_file():
+        raise FileNotFoundError(f"Calculator nicht gefunden: {calculator_path}")
+    spec = importlib.util.spec_from_file_location("ink_accuracy_calculator", calculator_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Calculator kann nicht geladen werden: {calculator_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    if not hasattr(module, "InkCalculator"):
+        raise ImportError("Die ausgewaehlte Datei enthaelt keine InkCalculator-Klasse.")
+    calculator = module.InkCalculator(tables_dir=str(tables_dir.expanduser().resolve()))
+    for name in ("density", "sound_velocity"):
+        method = getattr(calculator, name, None)
+        if not callable(method) or "mg" not in inspect.signature(method).parameters:
+            raise ImportError(f"InkCalculator.{name} benoetigt den Parameter mg. "
+                              "Bitte die neue MG-faehige Calculator-Version verwenden.")
+    return calculator
 
 
 def simulate(df: pd.DataFrame, calculator) -> pd.DataFrame:
@@ -381,13 +429,13 @@ def simulate(df: pd.DataFrame, calculator) -> pd.DataFrame:
                 "al": float(row["Al_wt_pct"]),
                 "ipa": float(row["IPA_wt_pct"]),
                 "pg": float(row["PG_wt_pct"]),
+                "mg": float(row["MG_wt_pct"]),
                 "temperature": float(row["T_M"]),
             }
             # InkCalculator: g/cm^3 -> Messdaten: kg/m^3.
             rho_sim = 1000.0 * calculator.density(**arguments)
-            # Einzelne Randspalten in pg_sound.csv enthalten nur einen Wert.
-            # SciPy warnt beim Aufbau der ungenutzten Rand-Extrapolation, obwohl
-            # das Ergebnis im Temperaturbereich 20..30 degC endlich ist.
+            # Some legacy table layouts emit interpolation warnings.
+            # Non-finite model results are rejected explicitly below.
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
@@ -512,7 +560,7 @@ def make_composition_summary(df: pd.DataFrame) -> pd.DataFrame:
     if ok.empty:
         return pd.DataFrame()
 
-    composition = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "Water_wt_pct"]
+    composition = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct", "Water_wt_pct"]
     # Einwaagen sind pro Rezeptur konstant; Rundung verhindert kuenstliche
     # Gruppen durch Gleitkomma-Rauschen.
     group_columns = []
@@ -722,6 +770,7 @@ def make_time_segment_summary(df: pd.DataFrame) -> pd.DataFrame:
             "Al_wt_pct": float(segment["Al_wt_pct"].iloc[0]),
             "IPA_wt_pct": float(segment["IPA_wt_pct"].iloc[0]),
             "PG_wt_pct": float(segment["PG_wt_pct"].iloc[0]),
+            "MG_wt_pct": float(segment["MG_wt_pct"].iloc[0]),
             "Water_wt_pct": float(segment["Water_wt_pct"].iloc[0]),
         }
         for property_name, unit, error_column in specs:
@@ -772,6 +821,7 @@ def identify_high_deviations(
         "Al_wt_pct",
         "IPA_wt_pct",
         "PG_wt_pct",
+        "MG_wt_pct",
         "Water_wt_pct",
     ]
     standardized_columns = [
@@ -858,7 +908,7 @@ def create_plot(
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     specs: list[tuple[str, str, str, str, str]] = [
-        ("Rho_M", "Rho_Sim_kg_m3", "Rho_Error", "Density", "kg/m³"),
+        ("Rho_M", "Rho_Sim_kg_m3", "Rho_Error", "Density", "kg/mÂ³"),
         ("C_M", "C_Sim_m_s", "C_Error", "Sound velocity", "m/s"),
     ]
     cmap = plt.get_cmap("viridis")
@@ -885,12 +935,12 @@ def create_plot(
         ax.set_ylabel(f"Simulated [{unit}]")
         ax.set_title(f"{title}: measured vs. simulated")
         ax.grid(alpha=0.25)
-        fig.colorbar(scatter, ax=ax, label="Temperature [°C]")
+        fig.colorbar(scatter, ax=ax, label="Temperature [Â°C]")
 
         ax = axes[1, column]
         ax.scatter(temperatures, ok[error_col], s=25, alpha=0.75, color="#1f4e79")
         ax.axhline(0.0, color="#555555", ls="--", lw=1.2)
-        ax.set_xlabel("Temperature [°C]")
+        ax.set_xlabel("Temperature [Â°C]")
         ax.set_ylabel(f"Simulation - measurement [{unit}]")
         ax.set_title(f"{title}: error vs. temperature")
         ax.grid(alpha=0.25)
@@ -960,7 +1010,7 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     group_columns = _time_group_columns(usable)
     multiple_files = usable["Source_File"].nunique() > 1 if "Source_File" in usable else False
     specs = (
-        ("Rho_Error", "Dichte", "Simulation - Messung [kg/m³]", "kg/m³"),
+        ("Rho_Error", "Dichte", "Simulation - Messung [kg/mÂ³]", "kg/mÂ³"),
         ("C_Error", "Schallgeschwindigkeit", "Simulation - Messung [m/s]", "m/s"),
     )
 
@@ -1002,7 +1052,7 @@ def create_time_plots(df: pd.DataFrame, output_dir: Path) -> list[Path]:
                 ax.plot(x_line, y_line, color="black", lw=1.6, ls="--", label="Gesamttrend")
                 annotation = (
                     f"Trend: {slope:+.4g} {unit}/h\n"
-                    f"p = {float(trend['Slope_p_value']):.3g}, R² = {float(trend['Time_R2']):.3f}"
+                    f"p = {float(trend['Slope_p_value']):.3g}, RÂ² = {float(trend['Time_R2']):.3f}"
                 )
                 ax.text(
                     0.015,
@@ -1110,6 +1160,7 @@ def _print_deviation_rows(group: pd.DataFrame, max_rows: int) -> None:
             "Al_wt_pct",
             "IPA_wt_pct",
             "PG_wt_pct",
+            "MG_wt_pct",
             "Measured",
             "Simulated",
             "Error_Sim_minus_Meas",
@@ -1126,6 +1177,7 @@ def _print_deviation_rows(group: pd.DataFrame, max_rows: int) -> None:
             "Al_wt_pct": "Al_pct",
             "IPA_wt_pct": "IPA_pct",
             "PG_wt_pct": "PG_pct",
+            "MG_wt_pct": "MG_pct",
             "Error_Sim_minus_Meas": "Error",
             "Abs_Rel_Error_pct": "AbsRel_pct",
         }
@@ -1249,6 +1301,7 @@ def _print_time_segment_analysis(sample_segments: pd.DataFrame) -> None:
         "Al_wt_pct",
         "IPA_wt_pct",
         "PG_wt_pct",
+        "MG_wt_pct",
         "Slope_per_h",
         "Slope_p_value",
     ]
@@ -1273,6 +1326,7 @@ def _print_time_segment_analysis(sample_segments: pd.DataFrame) -> None:
             "Al_wt_pct": "Al_pct",
             "IPA_wt_pct": "IPA_pct",
             "PG_wt_pct": "PG_pct",
+            "MG_wt_pct": "MG_pct",
         }
     )
     display_columns = [
@@ -1284,6 +1338,7 @@ def _print_time_segment_analysis(sample_segments: pd.DataFrame) -> None:
             "Al_pct",
             "IPA_pct",
             "PG_pct",
+            "MG_pct",
             "Rho_Trend_pro_h",
             "Rho_p",
             "C_Trend_pro_h",
@@ -1377,7 +1432,8 @@ def main() -> int:
     args = parse_args()
     try:
         print("Messdaten laden")
-        measurements = load_measurements(args.input)
+        measurements = load_measurements(args.input, file_index=args.file_index)
+        print("  MG wird modelliert. Hinweis: Einwaagen ohne Verdunstungskorrektur.")
         evaluated = add_composition(measurements)
         evaluated = add_time_information(
             evaluated,
@@ -1388,10 +1444,9 @@ def main() -> int:
         evaluated = flag_rows(
             evaluated,
             require_quality_flags=args.require_quality_flags,
-            allow_mg_as_water=args.allow_mg_as_water,
         )
 
-        calculator = load_calculator(args.tables)
+        calculator = load_calculator(args.tables, args.calculator)
         evaluated = simulate(evaluated, calculator)
         evaluated, deviations = identify_high_deviations(
             evaluated,
@@ -1404,6 +1459,9 @@ def main() -> int:
     except (FileNotFoundError, ValueError, ImportError) as exc:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("\nAuswahl/Auswertung abgebrochen.")
+        return 130
 
     simulated = int((evaluated["Simulation_Status"] == "ok").sum())
     skipped = int((evaluated["Simulation_Status"] == "skipped").sum())
