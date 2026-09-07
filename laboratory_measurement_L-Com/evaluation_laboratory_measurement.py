@@ -11,19 +11,22 @@ Directory Structure:
     +-- results/                              <- Excel file and plots
 
 The script:
-  1. Reads all CSV files from "measurement_data", calculates the
+  1. Lets the user select one CSV file from "measurement_data", calculates the
      composition from initial weights, and exports everything as an
      Excel file to "results".
   2. Generates a plot for each sample ID showing density, sound velocity,
      and temperature over time, including variation bands and markers for
      every formulation/recipe change.
 
-Usage: python evaluation_laboratory_measurement.py
+Usage:
+    python evaluation_laboratory_measurement.py
+    python evaluation_laboratory_measurement.py --csv "measurement.csv"
+    python evaluation_laboratory_measurement.py --list-files
 """
 
 from __future__ import annotations
 
-import sys
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -91,26 +94,100 @@ COLUMN_LABELS = {
 
 
 # =====================================================================
-# 1  DATA IMPORT AND PREPROCESSING
+# 1  FILE SELECTION, DATA IMPORT AND PREPROCESSING
 # =====================================================================
 
-def load_measurement_data() -> pd.DataFrame:
-    """Reads all CSV files from the measurement data directory."""
+def find_measurement_files() -> list[Path]:
+    """Returns the CSV files available for evaluation."""
     files = sorted(MEASUREMENT_DATA.glob("*.csv"))
     if not files:
-        sys.exit(f"No CSV files found in {MEASUREMENT_DATA}.")
+        raise FileNotFoundError(f"No CSV files found in {MEASUREMENT_DATA}.")
+    return files
 
-    parts = []
-    for f in files:
-        # comment="/" removes trailing comment lines such as //END,
-        # skipinitialspace strips leading whitespace from values
-        d = pd.read_csv(f, comment="/", skipinitialspace=True)
-        d.columns = [c.strip() for c in d.columns]
-        d["Source_File"] = f.name
-        parts.append(d)
-        print(f"  {f.name}: {len(d)} records")
 
-    return pd.concat(parts, ignore_index=True)
+def print_measurement_files(files: list[Path]) -> None:
+    """Prints a numbered list of selectable measurement files."""
+    print("\nAvailable measurement CSV files:")
+    for number, path in enumerate(files, start=1):
+        print(f"  {number}: {path.name}")
+
+
+def select_measurement_file(files: list[Path]) -> Path:
+    """Interactively selects exactly one measurement file."""
+    print_measurement_files(files)
+    while True:
+        response = input("Select file number (q = quit): ").strip()
+        if response.lower() == "q":
+            raise KeyboardInterrupt
+        try:
+            number = int(response)
+        except ValueError:
+            print("Please enter one of the displayed numbers.")
+            continue
+        if 1 <= number <= len(files):
+            return files[number - 1]
+        print("Please enter one of the displayed numbers.")
+
+
+def resolve_measurement_file(requested: Path, files: list[Path]) -> Path:
+    """Resolves a CLI filename and restricts it to discovered CSV files."""
+    requested = requested.expanduser()
+    candidates = [requested]
+    if not requested.is_absolute():
+        candidates.append(MEASUREMENT_DATA / requested)
+
+    available = {path.resolve(): path for path in files}
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in available:
+            return available[resolved]
+
+    # A bare filename is also accepted regardless of letter case. This is
+    # convenient when a command prepared on Windows is run on another system.
+    if requested.parent == Path("."):
+        name_matches = [path for path in files
+                        if path.name.casefold() == requested.name.casefold()]
+        if len(name_matches) == 1:
+            return name_matches[0]
+
+    available_names = ", ".join(path.name for path in files)
+    raise ValueError(
+        f"CSV file '{requested}' is not available in {MEASUREMENT_DATA}. "
+        f"Available files: {available_names}"
+    )
+
+
+def load_measurement_data(file_path: Path) -> pd.DataFrame:
+    """Reads exactly one selected CSV measurement file."""
+    if not file_path.is_file():
+        raise FileNotFoundError(f"Measurement file not found: {file_path}")
+    if file_path.suffix.lower() != ".csv":
+        raise ValueError(f"Selected file is not a CSV file: {file_path}")
+
+    # comment="/" removes trailing comment lines such as //END,
+    # skipinitialspace strips leading whitespace from values
+    data = pd.read_csv(file_path, comment="/", skipinitialspace=True)
+    data.columns = [column.strip() for column in data.columns]
+    data["Source_File"] = file_path.name
+    print(f"  Selected: {file_path.name} ({len(data)} records)")
+    return data
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Builds command-line options while retaining interactive default use."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        help=("CSV file to evaluate. A filename is resolved inside "
+              "measurement_data. Without this option, a numbered menu is shown."),
+    )
+    parser.add_argument(
+        "--list-files",
+        action="store_true",
+        help="List available CSV files in measurement_data and exit.",
+    )
+    return parser
 
 
 def add_time_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -242,7 +319,7 @@ def detect_recipe_changes(df: pd.DataFrame) -> pd.DataFrame:
                 df.at[idx, "Change_Text"] = ", ".join(texts)
 
     # Consecutive section index for each formulation/recipe step
-    df["Recipe_Changed"] = df["Recipe_Changed"].fillna(False).astype(bool)
+    df["Recipe_Changed"] = df["Recipe_Changed"].eq(True)
     df["Section"] = (df.groupby("ProbeNr")["Recipe_Changed"]
                        .cumsum().fillna(0).astype(int) + 1)
     return df
@@ -364,7 +441,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     if has_plotted:
         ax.legend(fontsize=8, ncol=4, loc="upper left", framealpha=0.9)
     else:
-        ax.text(0.5, 0.5, "No active components – pure water",
+        ax.text(0.5, 0.5, "No active components â€“ pure water",
                 transform=ax.transAxes, ha="center", va="center", color="#777")
     ax.set_ylabel("Composition\n[wt.-%]")
     ax.grid(alpha=0.35, lw=0.6, color=COLORS["grid"])
@@ -382,7 +459,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     _plot_channel(axes[1], x, sample_df["Rho_M"].to_numpy(float),
                   sample_df["Rho_S"].to_numpy(float) if "Rho_S" in sample_df else None,
                   sample_df["Rho_Sp"].to_numpy(float) if "Rho_Sp" in sample_df else None,
-                  COLORS["rho"], "Density\n[kg/m³]")
+                  COLORS["rho"], "Density\n[kg/mÂ³]")
     _mark_changes(axes[1], changes)
 
     _plot_channel(axes[2], x, sample_df["C_M"].to_numpy(float),
@@ -394,7 +471,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     # ---------- Panel 4: Temperature ----------
     _plot_channel(axes[3], x, sample_df["T_M"].to_numpy(float),
                   sample_df["T_S"].to_numpy(float) if "T_S" in sample_df else None,
-                  None, COLORS["T"], "Temperature\n[°C]")
+                  None, COLORS["T"], "Temperature\n[Â°C]")
     _mark_changes(axes[3], changes)
     axes[3].set_xlabel("Elapsed time since sample start [min]")
 
@@ -403,9 +480,9 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
         Line2D([], [], color="#444", lw=1.6, marker="o", ms=4,
                label="Mean value over 100 measurements"),
         Line2D([], [], color="#444", lw=8, alpha=0.28,
-               label="5% – 95% interval of single readings (±1.645·σ)"),
+               label="5% â€“ 95% interval of single readings (Â±1.645Â·Ïƒ)"),
         Line2D([], [], color="#444", lw=8, alpha=0.12,
-               label="Span (Min – Max) within window"),
+               label="Span (Min â€“ Max) within window"),
         Line2D([], [], color=COLORS["mark"], ls="--", lw=1.0,
                label="Recipe / formulation change"),
     ]
@@ -414,15 +491,15 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
 
     # ---------- Title ----------
     first_row = sample_df.iloc[0]
-    header = (f"Sample {int(probe)}   ·   Start: "
+    header = (f"Sample {int(probe)}   Â·   Start: "
               f"{first_row['w_Al']:.3f}% Al / {first_row['w_IPA']:.3f}% IPA / "
-              f"{first_row['w_PG']:.3f}% PG / {first_row['w_MG']:.3f}% MG   ·   "
+              f"{first_row['w_PG']:.3f}% PG / {first_row['w_MG']:.3f}% MG   Â·   "
               f"Water balance {first_row['w_H2O']:.2f}%")
     if pd.notna(first_row.get("Timestamp", pd.NaT)):
-        header += f"\nStart {first_row['Timestamp']:%Y-%m-%d %H:%M} (UTC)   ·   "
+        header += f"\nStart {first_row['Timestamp']:%Y-%m-%d %H:%M} (UTC)   Â·   "
     else:
         header += "\n"
-    header += (f"{len(sample_df)} records   ·   "
+    header += (f"{len(sample_df)} records   Â·   "
                f"{int(sample_df['Recipe_Changed'].sum())} recipe change(s)")
     fig.suptitle(header, fontsize=11, y=0.995)
 
@@ -437,14 +514,31 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
 # MAIN PROGRAM
 # =====================================================================
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = build_argument_parser()
+    args = parser.parse_args(argv)
+
     for folder in (MEASUREMENT_DATA, RESULTS_DIR):
         folder.mkdir(exist_ok=True)
+
+    try:
+        files = find_measurement_files()
+        if args.list_files:
+            print_measurement_files(files)
+            return
+        selected_file = (resolve_measurement_file(args.csv, files)
+                         if args.csv is not None
+                         else select_measurement_file(files))
+    except KeyboardInterrupt:
+        print("\nSelection cancelled. No files were evaluated.")
+        return
+    except (FileNotFoundError, ValueError) as error:
+        parser.error(str(error))
 
     print("=" * 68)
     print("DATA IMPORT & PREPROCESSING")
     print("=" * 68)
-    df = load_measurement_data()
+    df = load_measurement_data(selected_file)
     df = add_time_columns(df)
     df = calculate_composition(df)
     df = flag_unusable_records(df)
