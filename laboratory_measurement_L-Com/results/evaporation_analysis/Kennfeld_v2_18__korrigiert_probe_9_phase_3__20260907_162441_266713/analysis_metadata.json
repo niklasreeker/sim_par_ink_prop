@@ -1,0 +1,268 @@
+{
+  "script_version": "1.1.0-hybrid-ascii",
+  "created_utc": "2026-09-07T14:24:43.699174+00:00",
+  "source": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Kennfeld_v2 (18)_korrigiert.csv",
+  "calculator": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\ink_calculator.py",
+  "tables": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters",
+  "source_sha256": "af0bee80c3b37708679196b2adde95302c6c5b4aa1eca3f72aa8f9a0d6ea05da",
+  "calculator_sha256": "92c552f1f0f45797db6fd3f5c786b4bd78e16926c775c886aa7ae237a2ca2524",
+  "tables_sha256": {
+    "ipa_density.csv": "35547d43bd0c1c424a8020b26bd3d88821901ded85bd41805b4bd4cdcd338961",
+    "ipa_density_Ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "pg_density.csv": "4866e0b39c3cbf8e49f2c7f4a91396ba027a742f3c8cfc99eee9e6cbea3d113f",
+    "pg_density_Ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "pg_sound.csv": "ea6127ca847d1d2714fe237c7dca9db0fd208c5f09ff50953e56f9bbb1d27dd7",
+    "pg_sound_claude.csv": "caa95f6a2ee8177f495ba382681756c2d0f04696a4000b52fb0a31e2423560c7",
+    "pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "pg_viscosity.csv": "8ecde964d39204748e897f86b4c930407f3495b3fa6a425c9cbffdee38066ee0"
+  },
+  "arguments": {
+    "weighing": false,
+    "csv": null,
+    "input_dir": null,
+    "sample": null,
+    "phase": null,
+    "calculator": null,
+    "tables": null,
+    "calibration_field": null,
+    "no_calibration_field": false,
+    "calibration_dir": null,
+    "output_root": null,
+    "start_min": 0,
+    "end_min": null,
+    "prior_ipa_loss": null,
+    "prior_water_loss": null,
+    "segments": 1,
+    "max_gap_min": 60,
+    "max_ipa_rate": 15,
+    "max_water_rate": 30,
+    "max_rho_sd": 0.05,
+    "max_c_sd": 0.2,
+    "sigma_rho": null,
+    "sigma_c": null,
+    "strict_flags": false,
+    "bootstrap": 60,
+    "block_length": null,
+    "seed": 184
+  },
+  "sample": 9.0,
+  "phase": 3,
+  "start_utc": "2026-09-07T10:38:16.054000+00:00",
+  "end_utc": "2026-09-07T11:14:16.091000+00:00",
+  "start_masses_g": {
+    "Al": 18.192,
+    "IPA": 36.384,
+    "PG": 51.394,
+    "MG": 0.0,
+    "Water": 1009.71
+  },
+  "noise_scales": [
+    0.01,
+    0.05
+  ],
+  "prediction_model": "physics",
+  "calibration_field": null,
+  "notices": [
+    "Model-based estimates, not a direct measurement of vapour composition.",
+    "Only losses after the first retained timestamp are fitted.",
+    "Nominal additions minus entered prior losses define the starting composition.",
+    "Al, PG and MG are assumed nonvolatile; no withdrawals, spills or unrecorded additions.",
+    "A constant offset per sensor is fitted. Time-/composition-/temperature-dependent errors remain confounded.",
+    "Bootstrap ranges are conditional on this calculator and the assumed initial composition.",
+    "Stabil/Gueltig are not default filters because real evaporation itself can create a trend.",
+    "Window shorter than one hour: small drifts and settling can dominate evaporation estimates.",
+    "Unknown prior evaporation: zero prior losses were assumed for at least one solvent.",
+    "Few timestamps: bootstrap uncertainty and residual diagnostics have limited reliability.",
+    "A better two-solvent fit alone is not proof that water evaporated: the model has extra free parameters.",
+    "Calculator support: PG density: temperature 22.97 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 22.98 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.00 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.01 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.02 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.03 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.04 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.05 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.06 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.07 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.08 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.10 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.11 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.12 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.13 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.14 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.15 C is outside the locally supported temperature range.",
+    "Calculator support: PG density: temperature 23.16 C is outside the locally supported temperature range.",
+    "Calculator support: PG sound: temperature 23.0 C is outside locally supported anchors 25-65 C at 8.0 wt%.",
+    "Calculator support: PG sound: temperature 23.1 C is outside locally supported anchors 25-65 C at 8.0 wt%.",
+    "Calculator support: PG sound: temperature 23.2 C is outside locally supported anchors 25-65 C at 8.0 wt%."
+  ],
+  "models": {
+    "none": {
+      "mode": "none",
+      "params": [],
+      "rates": [
+        [
+          0.0
+        ],
+        [
+          0.0
+        ]
+      ],
+      "average_rates_g_h": [
+        0.0,
+        0.0
+      ],
+      "total_rate_g_h": 0.0,
+      "ipa_mass_fraction_in_loss": null,
+      "offset": [
+        -0.7874794501855089,
+        2.408627731168556
+      ],
+      "rmse": [
+        0.01819625619529492,
+        0.0633424924759894
+      ],
+      "weighted_sse": 93.40297279305156,
+      "normalized_jacobian_condition": null,
+      "sensitivity_correlations": null,
+      "boundary_parameters": [],
+      "bootstrap": null
+    },
+    "ipa": {
+      "mode": "ipa",
+      "params": [
+        0.5461979703015015
+      ],
+      "rates": [
+        [
+          0.5461979703015015
+        ],
+        [
+          0.0
+        ]
+      ],
+      "average_rates_g_h": [
+        0.5461979703015015,
+        0.0
+      ],
+      "total_rate_g_h": 0.5461979703015015,
+      "ipa_mass_fraction_in_loss": 1.0,
+      "offset": [
+        -0.8130105216192401,
+        2.531391947592379
+      ],
+      "rmse": [
+        0.00352756442878513,
+        0.019126382413975646
+      ],
+      "weighted_sse": 5.1445256841205715,
+      "normalized_jacobian_condition": null,
+      "sensitivity_correlations": null,
+      "boundary_parameters": [],
+      "bootstrap": {
+        "successful": 60,
+        "failed": 0,
+        "block_length_points": 3,
+        "average_rates_ci95_g_h": [
+          [
+            0.4903819382773681,
+            0.0
+          ],
+          [
+            0.6235504996355737,
+            0.0
+          ]
+        ],
+        "ipa_share_ci95": [
+          1.0,
+          1.0
+        ],
+        "parameters_ci95_g_h": [
+          [
+            0.49038193827736803
+          ],
+          [
+            0.6235504996355737
+          ]
+        ],
+        "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+      }
+    },
+    "mixed": {
+      "mode": "mixed",
+      "params": [
+        0.5447901616516929,
+        1.5691336450618047
+      ],
+      "rates": [
+        [
+          0.5447901616516929
+        ],
+        [
+          1.5691336450618047
+        ]
+      ],
+      "average_rates_g_h": [
+        0.5447901616516929,
+        1.5691336450618047
+      ],
+      "total_rate_g_h": 2.1139238067134976,
+      "ipa_mass_fraction_in_loss": 0.2577151361470659,
+      "offset": [
+        -0.8170698956627719,
+        2.51014046411683
+      ],
+      "rmse": [
+        0.0025125744692871548,
+        0.014141067524925903
+      ],
+      "weighted_sse": 2.719246197763896,
+      "normalized_jacobian_condition": 1.015290074190414,
+      "sensitivity_correlations": [
+        [
+          0.9999999999999999,
+          0.01517319446272976
+        ],
+        [
+          0.01517319446272976,
+          1.0
+        ]
+      ],
+      "boundary_parameters": [],
+      "bootstrap": {
+        "successful": 60,
+        "failed": 0,
+        "block_length_points": 3,
+        "average_rates_ci95_g_h": [
+          [
+            0.48877992869588976,
+            1.2704590178861188
+          ],
+          [
+            0.6224155601867992,
+            1.8824836620400491
+          ]
+        ],
+        "ipa_share_ci95": [
+          0.21002235916259812,
+          0.32057640213804417
+        ],
+        "parameters_ci95_g_h": [
+          [
+            0.4887799286958898,
+            1.2704590178861188
+          ],
+          [
+            0.6224155601867992,
+            1.8824836620400491
+          ]
+        ],
+        "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+      }
+    }
+  }
+}

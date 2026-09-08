@@ -8,6 +8,15 @@ Run interactively from the project root:
 Reproduce the supplied gravimetric experiment:
     python laboratory_measurement_L-Com/evaluate_evaporation.py --weighing
 
+Whole sample:
+    python laboratory_measurement_L-Com/evaluate_evaporation.py --whole-sample
+Sequential phase fits carry solvent losses into every subsequent recipe.
+Unobserved intervals are explicitly modelled, not measured. A known or assumed
+total loss before the first measurement can be entered with
+--pre-measurement-loss; it defaults to 0 g. See --gap-mode and
+--assumed-ipa-fraction for sensitivity scenarios.
+The following description applies to the original single-phase mode.
+
 Only unchanged-recipe phases are fitted. Temperature is evaluated at every
 timestamp. A separate constant offset is profiled out of each sensor channel,
 so absolute calibration bias is not interpreted as evaporation. A composition-
@@ -66,7 +75,7 @@ MASS_COLUMNS = ["m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"]
 COMPONENTS = ["Al", "IPA", "PG", "MG", "Water"]
 COLORS = {"none": "#9AA4AE", "ipa": "#D17A22", "mixed": "#087F8C"}
 LABELS = {"none": "Keine Verdunstung", "ipa": "Nur IPA", "mixed": "IPA + Wasser"}
-VERSION = "1.1.0-hybrid-ascii"
+VERSION = "1.2.1-configurable-preloss"
 
 
 def number(value):
@@ -289,7 +298,7 @@ def phase_label(item):
             f"{frame['Timestamp'].iloc[-1].strftime('%H:%M')} UTC | {len(frame)} Punkte | {masses}")
 
 
-def prepare_window(phase, args):
+def prepare_window(phase, args, validate=True):
     audit = phase.copy()
     audit["Phase_elapsed_min"] = (audit.Timestamp - audit.Timestamp.iloc[0]).dt.total_seconds()/60
     reasons = [[] for _ in range(len(audit))]
@@ -318,10 +327,11 @@ def prepare_window(phase, args):
     audit["Exclusion_reason"] = ["; ".join(r) for r in reasons]
     audit["Used"] = audit.Exclusion_reason.eq("")
     selected = audit[audit.Used].copy()
-    if len(selected) < max(8, 4*args.segments+2):
+    if validate and len(selected) < max(8, 4*args.segments+2):
         raise ValueError(f"Nur {len(selected)} brauchbare Punkte. Mindestens {max(8, 4*args.segments+2)} erforderlich; Zeitfenster/Filter/Segmentzahl pruefen.")
-    selected["Elapsed_h"] = (selected.Timestamp-selected.Timestamp.iloc[0]).dt.total_seconds()/3600
-    if selected.Elapsed_h.iloc[-1] <= 0:
+    selected["Elapsed_h"] = ((selected.Timestamp-selected.Timestamp.iloc[0]).dt.total_seconds()/3600
+                             if len(selected) else pd.Series(dtype=float))
+    if validate and selected.Elapsed_h.iloc[-1] <= 0:
         raise ValueError("Das ausgewaehlte Zeitfenster hat keine positive Dauer.")
     return selected, audit
 
@@ -989,8 +999,380 @@ def export_results(selected, audit, model, results, sigma, notices, args, out, p
     print(pd.DataFrame(summary)[["Model", "IPA_rate_g_h", "Water_rate_g_h", "Total_rate_g_h", "RMSE_density_kg_m3", "RMSE_sound_m_s"]].to_string(index=False))
 
 
+def split_assumed_total_loss(masses, total, ipa_fraction=None):
+    """Split an assumed TOTAL loss; a liquid-stock ratio is not a vapour law."""
+    stock = np.asarray(masses, float)[[1, 4]]
+    if total == 0:
+        return np.zeros(2)
+    if stock.sum() <= 0:
+        raise ValueError("Kein IPA/Wasser-Vorrat fuer angenommene Verdunstung.")
+    fraction = stock[0] / stock.sum() if ipa_fraction is None else ipa_fraction
+    return total * np.array([fraction, 1-fraction])
+
+
+def assumed_loss(masses, duration, total_rate, ipa_fraction=None):
+    return split_assumed_total_loss(masses, duration * total_rate, ipa_fraction)
+
+
+def subtract_solvents(masses, losses):
+    result = np.array(masses, dtype=float, copy=True)
+    result[[1, 4]] -= losses
+    if not np.isfinite(result).all() or np.any(result < -1e-8) or result.sum() <= 0:
+        raise ValueError("Gesamtbilanz: angenommene Verluste ueberschreiten den Vorrat. "
+                         "Zeitstempel, Probenidentitaet, Pausenmodell und Raten pruefen.")
+    return np.maximum(result, 0)
+
+
+def whole_sample_analysis(sample, args, source, interactive=False):
+    """Sequential conditional fits with an explicit ledger for every elapsed hour.
+
+    Recipe masses are cumulative additions, never fresh batches or remaining
+    weighed masses. Additions occur at the first raw timestamp of the new recipe
+    (their exact timing inside a recording gap is unknown). No backward fitting
+    of gap losses from sensor jumps: each phase has its own channel offsets.
+    """
+    if args.start_min != 0 or args.end_min is not None:
+        raise ValueError("Gesamtprobe: --start-min/--end-min weglassen; Qualitaetsfilter bleiben aktiv.")
+    if args.prior_ipa_loss is not None or args.prior_water_loss is not None:
+        raise ValueError("Gesamtprobe: --prior-*-loss weglassen; Vorverlust ueber --pre-measurement-loss einstellen.")
+    if args.assumed_ipa_fraction is not None and args.assumed_ipa_fraction > 1:
+        raise ValueError("--assumed-ipa-fraction muss zwischen 0 und 1 liegen.")
+    # Some acquisition files contain old pure-water/reference records with the
+    # same ProbeNr. Only the ink lifetime starts the sample balance.
+    sample = sample.sort_values(["Timestamp", "Source_record"]).reset_index(drop=True)
+    ink_positions = np.flatnonzero(sample.m_SL120.to_numpy() > 0)
+    if not len(ink_positions):
+        raise ValueError("Keine Tintenmessung in der Probe.")
+    excluded_reference = sample.iloc[:ink_positions[0]].copy()
+    sample = sample.iloc[ink_positions[0]:].copy()
+    delta = sample[MASS_COLUMNS].diff()
+    if (delta < -1e-5).any().any():
+        raise ValueError("Einwaagen nehmen innerhalb derselben Probe ab. Die Gesamtbilanz setzt "
+                         "kumulative Zugaben voraus; Neuansatz/Entnahme/Probenwechsel zuerst trennen.")
+    duplicate_changes = sample.Timestamp.duplicated(keep=False) & (delta.abs() > 1e-5).any(axis=1)
+    if duplicate_changes.any():
+        raise ValueError("Rezepturwechsel mit identischem Zeitstempel: Reihenfolge zuerst klaeren.")
+    gap_overrides = {}
+    if args.gap_overrides:
+        gap_overrides = json.loads(args.gap_overrides.read_text(encoding="utf-8-sig"))
+        valid_phases = {str(int(p)) for p in sample.Phase.unique()[1:]}
+        if not isinstance(gap_overrides, dict) or not set(gap_overrides).issubset(valid_phases):
+            raise ValueError("Pausen-JSON: Objekt mit Phasennummern nach der ersten Tintenphase erforderlich.")
+        for key, config in gap_overrides.items():
+            if (not isinstance(config, dict) or "total_rate_g_h" not in config
+                    or set(config) - {"total_rate_g_h", "ipa_fraction"}):
+                raise ValueError(f"Pausen-JSON Phase {key}: total_rate_g_h und optional ipa_fraction erwartet.")
+            for name, value in config.items():
+                if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                        or not np.isfinite(value) or value < 0 or (name == "ipa_fraction" and value > 1)):
+                    raise ValueError(f"Pausen-JSON Phase {key}: ungueltiger Wert fuer {name}.")
+    calc, calculator_path, tables_path = load_calculator(args.calculator, args.tables)
+    field = (CalibrationField(args.calibration_field) if args.calibration_field is not None else
+             choose_calibration_field(args.calibration_dir) if interactive and not args.no_calibration_field else None)
+    args.calibration_field = field.path if field else None
+    notices = [
+        "Fortlaufende, sequenzielle Modellbilanz; keine direkte chemische Verdunstungsmessung.",
+        "Einwaagen sind kumulative Zugaben. Al/PG/MG gelten als nichtfluechtig; Entnahmen und Verschleppung sind nicht korrigiert.",
+        "Der eingegebene Gesamtverlust vor Messbeginn wird genau einmal als Anfangskorrektur angesetzt; seine Dauer wird nicht aus den Messdaten abgeleitet.",
+        "Rezepturzugaben werden am ersten Rohzeitstempel der neuen Rezeptur eingebucht; der reale Zugabezeitpunkt in einer Pause ist unbekannt.",
+        "Ungemessene Zeiten (auch ausgeschlossene Randpunkte/zu kurze Phasen) werden separat geschaetzt.",
+        "previous setzt die letzte Segmentrate des letzten erfolgreichen Fits fort; bis dahin gilt gap-rate.",
+        "IPA/Wasser-Anteile ungemessener Verluste sind Annahmen. Ohne Vorgabe gilt der aktuelle IPA-Anteil am IPA/Wasser-Vorrat, kein Dampfdruckmodell.",
+        "Jede Phase hat eigene Sensoroffsets. Spruenge zwischen Rezepturen identifizieren deshalb keinen eindeutigen Pausenverlust.",
+        "Phasen-Bootstrap ist bedingt auf die uebernommene Startmasse. Unsicherheit vorheriger Fits, Pausen und Vorverlust wird NICHT propagiert; kein Gesamt-Konfidenzintervall.",
+        "Ratenunterschiede nach Zugaben sind beschreibend, kein kausaler Nachweis eines Zusammensetzungseffekts.",
+        "Die Bilanz umfasst die gewaehlte CSV bis zum letzten Rohzeitstempel, nicht automatisch andere Dateien derselben Probe."]
+    if len(excluded_reference):
+        notices.append(f"{len(excluded_reference)} vorangehende Nicht-Tintenpunkte derselben ProbeNr aus der Lebensdauer ausgeschlossen.")
+    if field:
+        notices += field.provenance_warnings(calculator_path, tables_path, source, sample)
+    if args.pre_measurement_loss is None:
+        if interactive:
+            entry = input("Geschaetzter Gesamtverlust vor der ersten Messung [g] (Enter = 0): ").strip()
+            args.pre_measurement_loss = nonnegative(entry) if entry else 0.0
+        else:
+            args.pre_measurement_loss = 0.0
+    print(f"Gesamtprobe: {sample.ProbeNr.iloc[0]:g}; {sample.Phase.nunique()} Phasen; "
+          f"Vorverlust {args.pre_measurement_loss:g} g; Pausen: {args.gap_mode}", flush=True)
+    print("Ungemessene Verluste und ihre IPA/Wasser-Aufteilung sind Szenarioannahmen.", flush=True)
+    out = new_output(f"{source.stem[:35]}_probe_{sample.ProbeNr.iloc[0]:g}_whole_sample", args.output_root)
+    first = sample.Timestamp.iloc[0]
+    cursor = first
+    origin = first
+    nominal = starting_masses(sample.iloc[0])
+    masses = nominal.copy()
+    cumulative = np.zeros(2)
+    last_rates = None
+    ledger, series, audits, phases, transitions, fit_metadata = [], [], [], [], [], []
+    previous_fit = None
+
+    def state_record(timestamp, phase, kind, mass, loss):
+        row = {"Timestamp_UTC": timestamp.isoformat(), "Elapsed_h": (timestamp-origin).total_seconds()/3600,
+               "Phase": int(phase), "Kind": kind, "Cumulative_IPA_loss_g": float(loss[0]),
+               "Cumulative_Water_loss_g": float(loss[1]), "Cumulative_total_loss_g": float(loss.sum())}
+        for k, name in enumerate(COMPONENTS):
+            row[f"{name}_mass_g"] = float(mass[k])
+            row[f"{name}_wt_pct"] = float(100*mass[k]/mass.sum())
+        return row
+
+    def advance(end, phase, kind):
+        nonlocal cursor, masses, cumulative
+        duration = (end-cursor).total_seconds()/3600
+        if duration < -1e-9:
+            raise ValueError("Ueberlappende Phasen oder rueckwaerts laufende Zeit.")
+        if duration <= 0:
+            return
+        if kind == "between_phases" and str(int(phase)) in gap_overrides:
+            config = gap_overrides[str(int(phase))]
+            loss = assumed_loss(masses, duration, config["total_rate_g_h"],
+                                config.get("ipa_fraction", args.assumed_ipa_fraction))
+            method = "explicit_gap_override"
+        elif args.gap_mode == "zero":
+            loss, method = np.zeros(2), "zero_loss_scenario"
+        elif args.gap_mode == "previous" and last_rates is not None:
+            loss, method = last_rates * duration, "previous_fitted_terminal_rates"
+        else:
+            loss = assumed_loss(masses, duration, args.gap_rate, args.assumed_ipa_fraction)
+            method = "constant_total_rate" if args.gap_mode == "constant" else "constant_fallback_before_first_fit"
+        if kind == "between_phases" and duration > args.max_gap_min/60:
+            notices.append(f"Lange Pause vor Phase {phase}: {duration:.2f} h, Methode {method}. Lagerbedingungen pruefen.")
+        series.append(state_record(cursor, phase, kind+"_start", masses, cumulative))
+        masses = subtract_solvents(masses, loss)
+        cumulative += loss
+        ledger.append({"Phase": int(phase), "Kind": kind, "Evidence": "assumed", "Method": method,
+                       "Start_UTC": cursor.isoformat(), "End_UTC": end.isoformat(), "Duration_h": duration,
+                       "IPA_loss_g": float(loss[0]), "Water_loss_g": float(loss[1]), "Total_loss_g": float(loss.sum())})
+        cursor = end
+        series.append(state_record(cursor, phase, kind+"_end", masses, cumulative))
+
+    series.append(state_record(cursor, sample.Phase.iloc[0], "nominal_before_pre_measurement_loss", masses, cumulative))
+    if args.pre_measurement_loss > 0:
+        pre_loss = split_assumed_total_loss(masses, args.pre_measurement_loss,
+                                            args.assumed_ipa_fraction)
+        masses = subtract_solvents(masses, pre_loss)
+        cumulative += pre_loss
+        ledger.append({"Phase": int(sample.Phase.iloc[0]), "Kind": "pre_measurement_loss",
+                       "Evidence": "assumed", "Method": "user_entered_total_loss",
+                       "Start_UTC": first.isoformat(), "End_UTC": first.isoformat(),
+                       "Duration_h": 0.0, "IPA_loss_g": float(pre_loss[0]),
+                       "Water_loss_g": float(pre_loss[1]), "Total_loss_g": float(pre_loss.sum())})
+        series.append(state_record(cursor, sample.Phase.iloc[0],
+                                   "after_pre_measurement_loss", masses, cumulative))
+    for phase_id, raw in sample.groupby("Phase", sort=True):
+        raw = raw.sort_values(["Timestamp", "Source_record"]).copy()
+        advance(raw.Timestamp.iloc[0], phase_id, "between_phases")
+        new_nominal = starting_masses(raw.iloc[0])
+        addition = new_nominal - nominal
+        before_addition = masses.copy()
+        masses += addition
+        nominal = new_nominal
+        series.append(state_record(cursor, phase_id, "after_addition", masses, cumulative))
+        transition = {"Phase": int(phase_id), "Timestamp_UTC": cursor.isoformat(),
+                      "Carried_IPA_loss_g": float(cumulative[0]), "Carried_Water_loss_g": float(cumulative[1])}
+        for k, name in enumerate(COMPONENTS):
+            transition[f"Added_{name}_g"] = float(addition[k])
+            transition[f"Before_addition_{name}_mass_g"] = float(before_addition[k])
+            transition[f"After_addition_{name}_mass_g"] = float(masses[k])
+            transition[f"Corrected_minus_nominal_{name}_wt_pct"] = float(100*masses[k]/masses.sum()-100*nominal[k]/nominal.sum())
+        transitions.append(transition)
+        selected, audit = prepare_window(raw, args, validate=False)
+        audits.append(audit)
+        minimum = max(8, 4*args.segments+2)
+        enough = len(selected) >= minimum and selected.Elapsed_h.iloc[-1] > 0
+        if enough and args.segments > 1:
+            edges = np.linspace(0, selected.Elapsed_h.iloc[-1], args.segments+1)
+            bins = np.minimum(np.searchsorted(edges, selected.Elapsed_h, side="right")-1, args.segments-1)
+            enough = np.all(np.bincount(bins, minlength=args.segments) >= 4)
+        audit["Fit_used"] = audit.Used & bool(enough)
+        if not enough:
+            notices.append(f"Phase {phase_id}: {len(selected)} brauchbare Punkte / unzureichende Segmentabdeckung; gesamte Dauer nur geschaetzt.")
+            phases.append({"Phase": int(phase_id), "Status": "assumed_only", "Used_points": len(selected),
+                           "Raw_start_UTC": raw.Timestamp.iloc[0].isoformat(), "Raw_end_UTC": raw.Timestamp.iloc[-1].isoformat()})
+            advance(raw.Timestamp.iloc[-1], phase_id, "insufficient_phase")
+            continue
+        advance(selected.Timestamp.iloc[0], phase_id, "filtered_prefix")
+        model = EvaporationModel(calc, masses.copy(), selected.Elapsed_h.to_numpy(), selected.T_M.to_numpy(),
+                                 args.segments, args.max_ipa_rate, args.max_water_rate, calibration_field=field)
+        def scale(column, floor):
+            med = selected[column].median() if column in selected else floor
+            return max(floor, med) if np.isfinite(med) else floor
+        sigma = np.array([args.sigma_rho or scale("Rho_S", .01), args.sigma_c or scale("C_S", .05)])
+        observed = selected[["Rho_M", "C_M"]].to_numpy()
+        print(f"Phase {phase_id}: {len(selected)} Punkte, {model.time[-1]:.3f} h; "
+              f"uebernommener Verlust {cumulative.sum():.3f} g", flush=True)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("once")
+            fit = fit_model(model, observed, sigma, "mixed")
+            if args.bootstrap:
+                fit["bootstrap"] = bootstrap_fit(model, observed, sigma, fit, args.bootstrap,
+                                                  args.seed+int(phase_id), args.block_length)
+        notices += [f"Phase {phase_id}: {w.message}" for w in caught]
+        notices += [f"Phase {phase_id}: {w}" for w in calculator_support_warnings(model, {"mixed": fit})]
+        notices += [f"Phase {phase_id}: {w}" for w in calibration_diagnostics(model, {"mixed": fit})]
+        if fit["boundary_parameters"] or fit["normalized_jacobian_condition"] is None or fit["normalized_jacobian_condition"] > 30:
+            notices.append(f"Phase {phase_id}: Randloesung oder schwache IPA/Wasser-Trennbarkeit; nachfolgende Bilanz und previous-Pausenmodell haengen davon ab.")
+        losses, history, pct = model.states(fit["params"], "mixed")
+        for i, (_, point) in enumerate(selected.iterrows()):
+            row = state_record(point.Timestamp, phase_id, "fitted", history[i], cumulative+losses[i])
+            row["Source_record"] = int(point.Source_record)
+            row["Temperature_C"] = float(point.T_M)
+            for k, channel in enumerate(["Rho", "C"]):
+                row[f"{channel}_observed"] = float(observed[i, k])
+                row[f"{channel}_predicted_with_phase_offset"] = float(fit["predicted"][i, k])
+                row[f"{channel}_residual"] = float(fit["errors"][i, k])
+            series.append(row)
+        for j in range(model.segments):
+            duration = model.edges[j+1]-model.edges[j]
+            loss = fit["rates"][:, j]*duration
+            ledger.append({"Phase": int(phase_id), "Kind": "measurement_window", "Evidence": "fitted_model",
+                           "Method": "mixed_phase_fit", "Segment": j+1,
+                           "Start_UTC": (cursor+pd.Timedelta(hours=model.edges[j])).isoformat(),
+                           "End_UTC": (cursor+pd.Timedelta(hours=model.edges[j+1])).isoformat(),
+                           "Duration_h": duration, "IPA_loss_g": float(loss[0]),
+                           "Water_loss_g": float(loss[1]), "Total_loss_g": float(loss.sum())})
+        cumulative += losses[-1]
+        masses = history[-1].copy()
+        cursor = selected.Timestamp.iloc[-1]
+        last_rates = fit["rates"][:, -1].copy()
+        entry = {"Phase": int(phase_id), "Status": "fitted", "Used_points": len(selected),
+                 "Raw_start_UTC": raw.Timestamp.iloc[0].isoformat(), "Raw_end_UTC": raw.Timestamp.iloc[-1].isoformat(),
+                 "Fit_start_UTC": selected.Timestamp.iloc[0].isoformat(), "Fit_end_UTC": cursor.isoformat(),
+                 "Fit_duration_h": model.time[-1], "IPA_rate_g_h": float(fit["average_rates_g_h"][0]),
+                 "Water_rate_g_h": float(fit["average_rates_g_h"][1]), "Total_rate_g_h": float(fit["total_rate_g_h"]),
+                 "RMSE_density_kg_m3": float(fit["rmse"][0]), "RMSE_sound_m_s": float(fit["rmse"][1]),
+                 "Jacobian_condition": fit["normalized_jacobian_condition"],
+                 "Boundary_parameters": "; ".join(fit["boundary_parameters"])}
+        if previous_fit is not None:
+            entry["Previous_fitted_phase"] = previous_fit["Phase"]
+            entry["Total_rate_change_g_h"] = entry["Total_rate_g_h"]-previous_fit["Total_rate_g_h"]
+        phases.append(entry)
+        previous_fit = entry
+        fit_metadata.append({"phase": int(phase_id), "start_masses_g": model.masses0,
+                             "noise_scales": sigma, "fit": {k:v for k,v in fit.items()
+                             if k not in ["physics", "base_prediction", "predicted", "errors"]}})
+        advance(raw.Timestamp.iloc[-1], phase_id, "filtered_suffix")
+    ledger_df = pd.DataFrame(ledger)
+    if ledger_df.empty:
+        raise ValueError("Keine positive Auswertedauer.")
+    measured = ledger_df.Evidence.eq("fitted_model")
+    fitted_loss = float(ledger_df.loc[measured, "Total_loss_g"].sum())
+    assumed_total = float(ledger_df.loc[~measured, "Total_loss_g"].sum())
+    if not fit_metadata:
+        notices.append("KEIN ERFOLGREICHER MESSFIT: Das gesamte Ergebnis beruht nur auf den vorgegebenen Annahmen.")
+    total_hours = (cursor-origin).total_seconds()/3600
+    if total_hours <= 0:
+        raise ValueError("Die Gesamtprobe hat nach der ersten Messung keine positive Auswertedauer.")
+    pre_measurement_loss = float(args.pre_measurement_loss)
+    assumed_after_measurement = assumed_total - pre_measurement_loss
+    loss_since_measurement_start = float(cumulative.sum() - pre_measurement_loss)
+    if not np.isclose(ledger_df.Duration_h.sum(), total_hours, atol=1e-8):
+        raise RuntimeError("Interner Fehler: Zeitbilanz nicht geschlossen.")
+    expected = nominal.copy()
+    expected[[1, 4]] -= cumulative
+    if not np.allclose(masses, expected, atol=1e-7):
+        raise RuntimeError("Interner Fehler: Massenbilanz nicht geschlossen.")
+    summary = {"Sample": float(sample.ProbeNr.iloc[0]), "Start_UTC": origin.isoformat(), "End_UTC": cursor.isoformat(),
+               "Duration_since_first_measurement_h": total_hours,
+               "Pre_measurement_loss_g": pre_measurement_loss,
+               "Loss_since_first_measurement_g": loss_since_measurement_start,
+               "Total_loss_including_pre_measurement_g": float(cumulative.sum()),
+               "IPA_loss_g": float(cumulative[0]), "Water_loss_g": float(cumulative[1]),
+               "Fitted_window_loss_g": fitted_loss, "Assumed_loss_g": assumed_total,
+               "Assumed_loss_since_first_measurement_g": assumed_after_measurement,
+               "Fitted_duration_h": float(ledger_df.loc[measured, "Duration_h"].sum()),
+               "Assumed_duration_h": float(ledger_df.loc[~measured, "Duration_h"].sum()),
+               "Average_rate_since_first_measurement_g_h": float(loss_since_measurement_start/total_hours),
+               "Fitted_phases": len(fit_metadata), "Total_phases": len(phases),
+               "Final_masses_g": dict(zip(COMPONENTS, masses)), "Notices": list(dict.fromkeys(notices))}
+    pd.DataFrame(series).to_csv(out / "sample_time_series.csv", index=False)
+    ledger_df.to_csv(out / "sample_loss_ledger.csv", index=False)
+    pd.DataFrame(phases).to_csv(out / "sample_phases.csv", index=False)
+    pd.DataFrame(transitions).to_csv(out / "sample_transitions.csv", index=False)
+    pd.concat(audits, ignore_index=True).to_csv(out / "measurement_selection.csv", index=False)
+    if len(excluded_reference):
+        excluded_reference.to_csv(out / "excluded_pre_ink_records.csv", index=False)
+    write_json(out / "sample_summary.json", summary)
+    write_json(out / "analysis_metadata.json", {"script_version": VERSION, "arguments": vars(args),
+               "gap_overrides": gap_overrides,
+               "source": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+               "calculator": str(calculator_path), "calculator_sha256": hashlib.sha256(calculator_path.read_bytes()).hexdigest(),
+               "tables_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(tables_path.glob("*.csv"))},
+               "calibration_field_sha256": field.sha256 if field else None,
+               "created_utc": datetime.now(timezone.utc).isoformat(), "summary": summary, "phase_fits": fit_metadata})
+    plot_sample_history(pd.DataFrame(series), ledger_df, pd.DataFrame(phases), out, summary)
+    lines = ["# Gesamtprobe: fortlaufende Verdunstungsbilanz", "",
+             f"Probe {summary['Sample']:g} | {source.name}", "",
+             f"Gesamtverlust einschliesslich Vorverlust: **{cumulative.sum():.3f} g**",
+             f"- Vor der ersten Messung eingegeben: {pre_measurement_loss:.3f} g",
+             f"- Seit der ersten Messung: {loss_since_measurement_start:.3f} g",
+             f"- In Messfenstern angepasst: {fitted_loss:.3f} g",
+             f"- Seit Messbeginn in ungemessenen Zeiten angenommen: {assumed_after_measurement:.3f} g",
+             f"- IPA: {cumulative[0]:.3f} g; Wasser: {cumulative[1]:.3f} g (modell-/annahmenabhaengig)",
+             f"- Ausgewerteter Zeitraum ab erster Messung: {total_hours:.3f} h",
+             f"- Auswertbare Phasen: {len(fit_metadata)} von {len(phases)}", "",
+             "## Annahmen und Interpretation", ""] + [f"- {n}" for n in summary["Notices"]]
+    lines += ["", "## Ausgabedateien", "",
+              "- sample_loss_ledger.csv: lueckenlose Zeitbilanz, getrennt nach Fit und Annahme.",
+              "- sample_time_series.csv: kumulierte Verluste, verbleibende Massen, Anteile und Sensorresiduen.",
+              "- sample_transitions.csv: Zugaben, uebernommene Verluste und Abweichung zur Nominalrezeptur.",
+              "- sample_phases.csv: Phasenraten und Aenderung gegenueber dem letzten erfolgreichen Fit.",
+              "- analysis_metadata.json: Parameter, Quellenpruefsummen, Diagnostik und bedingte Phasen-Bootstraps.", "",
+              "Fuer Sensitivitaet erneut mit --gap-mode zero bzw. constant und unterschiedlichen",
+              "--assumed-ipa-fraction-Werten starten. Unterschiede sind Szenariospannen, keine Konfidenzintervalle.", "",
+              "![Gesamtverlauf](sample_history.png)"]
+    (out / "analysis_report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+    print(f"Gesamt: {cumulative.sum():.3f} g = {pre_measurement_loss:.3f} g Vorverlust + "
+          f"{fitted_loss:.3f} g aus Fits + {assumed_after_measurement:.3f} g in Messpausen angenommen.")
+    print(f"Ergebnisse: {out}")
+    return out
+
+
+def plot_sample_history(series, ledger, phases, out, summary):
+    fig, axes = plt.subplots(3, 1, figsize=(12, 11), constrained_layout=True)
+    fig.suptitle(f"Probe {summary['Sample']:g} | gesamte Verdunstungsbilanz", fontsize=17)
+    origin = pd.Timestamp(summary["Start_UTC"])
+    for col, label in [("Cumulative_total_loss_g", "Gesamt"), ("Cumulative_IPA_loss_g", "IPA"),
+                       ("Cumulative_Water_loss_g", "Wasser")]:
+        axes[0].plot(series.Elapsed_h, series[col], label=label)
+    for _, interval in ledger[ledger.Evidence.eq("assumed")].iterrows():
+        left = (pd.Timestamp(interval.Start_UTC)-origin).total_seconds()/3600
+        right = (pd.Timestamp(interval.End_UTC)-origin).total_seconds()/3600
+        axes[0].axvspan(left, right, color="#E9AE50", alpha=.18)
+    axes[0].set(ylabel="Kumulierter Verlust [g]", xlabel="Zeit seit erster Messung [h]",
+                title="Orange Flaechen: angenommene Verluste ohne Messfit")
+    axes[0].legend(frameon=False)
+    for name in COMPONENTS:
+        axes[1].plot(series.Elapsed_h, series[f"{name}_wt_pct"], label=name)
+    axes[1].set(ylabel="Massenanteil [%]", xlabel="Zeit seit erster Messung [h]",
+                title="Korrigierte Zusammensetzung; Spruenge durch Zugaben")
+    axes[1].legend(frameon=False, ncol=5)
+    fitted = phases[phases.Status.eq("fitted")]
+    if len(fitted):
+        x = np.arange(len(fitted))
+        axes[2].bar(x, fitted.IPA_rate_g_h, label="IPA")
+        axes[2].bar(x, fitted.Water_rate_g_h, bottom=fitted.IPA_rate_g_h, label="Wasser")
+        axes[2].set_xticks(x, [str(int(p)) for p in fitted.Phase])
+        axes[2].legend(frameon=False)
+    else:
+        axes[2].text(.5, .5, "Keine Phase mit ausreichenden Messpunkten: reine Schaetzung",
+                     ha="center", transform=axes[2].transAxes)
+    axes[2].set(xlabel="Phase (nur erfolgreiche Fits)", ylabel="Mittlere Rate [g/h]",
+                title="Phasenvergleich; keine unabhaengige IPA/Wasser-Messung")
+    style_axes(axes)
+    save_figure(fig, out / "sample_history.png")
+
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--whole-sample", action="store_true", help="Alle Kompositionen einer Probe mit fortlaufender Massenbilanz.")
+    p.add_argument("--pre-measurement-loss", type=nonnegative,
+                   help="Bereits vor der ersten Messung verdunstete Gesamtmasse [g]; interaktiv abfragen, sonst 0 g.")
+    p.add_argument("--assumed-ipa-fraction", type=nonnegative, help="IPA-Massenanteil fuer ungemessene Verluste [0..1]; sonst aktueller IPA-Anteil am IPA/Wasser-Vorrat (Annahme).")
+    p.add_argument("--gap-mode", choices=["previous", "constant", "zero"], default="previous",
+                   help="Ungemessene Zeiten: letzte gefittete Rate fortsetzen, konstante Gesamtrate oder Nullverlust-Szenario.")
+    p.add_argument("--gap-rate", type=nonnegative, default=2, help="Gesamtrate [g/h] bei constant oder solange previous noch keinen Fit hat.")
+    p.add_argument("--gap-overrides", type=Path, help="JSON: Phasennummer -> total_rate_g_h und optional ipa_fraction fuer die Pause davor.")
     p.add_argument("--weighing", action="store_true", help="Nur das mitgelieferte Wiegeprotokoll auswerten.")
     p.add_argument("--csv", type=Path, help="Messdatei; ohne Angabe nummerierte Dateiauswahl.")
     p.add_argument("--input-dir", type=Path, help="Ordner fuer die Dateiauswahl (nicht rekursiv).")
@@ -1034,13 +1416,21 @@ def main(argv=None):
         weighing_analysis(out)
         print(f"\nErgebnisse: {out}")
         return out
-    interactive = args.csv is None or args.sample is None or args.phase is None
+    interactive = args.csv is None or args.sample is None or (args.phase is None and not args.whole_sample)
     source = args.csv.resolve() if args.csv else select_number(find_measurement_files(args.input_dir), "Messdatei waehlen", lambda p: str(p))
     df = read_measurements(source, args.max_gap_min)
     samples = [x for x, g in df.groupby("ProbeNr") if x not in [100, 101] and (g.m_SL120 > 0).any()]
     sample = args.sample if args.sample is not None else select_number(samples, "Probe waehlen (Referenzen 100/101 ausgeschlossen)", lambda v: f"Probe {v:g}")
     if sample not in samples:
         raise ValueError("Probe nicht vorhanden oder keine Tintenprobe.")
+    if args.whole_sample and args.phase is not None:
+        raise ValueError("--whole-sample und --phase sind nicht kombinierbar.")
+    if interactive and not args.whole_sample and args.phase is None:
+        args.whole_sample = select_number(
+            [True, False], "Umfang waehlen",
+            lambda v: "Gesamte Probe (alle Kompositionen)" if v else "Einzelne Komposition / Phase")
+    if args.whole_sample:
+        return whole_sample_analysis(df[df.ProbeNr.eq(sample)].copy(), args, source, interactive)
     phases = list(df[df.ProbeNr.eq(sample)].groupby("Phase", sort=True))
     phase = next((g for n, g in phases if n == args.phase), None) if args.phase else select_number(phases, "Unveraenderte Komposition / zusammenhaengende Phase waehlen", phase_label)[1]
     if phase is None:

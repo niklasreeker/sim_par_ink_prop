@@ -1,0 +1,43 @@
+{
+  "Sample": 7.0,
+  "Start_UTC": "2026-09-01T11:54:36.679000+00:00",
+  "End_UTC": "2026-09-01T14:06:42.925000+00:00",
+  "Duration_since_first_measurement_h": 2.201735,
+  "Pre_measurement_loss_g": 2.0,
+  "Loss_since_first_measurement_g": 4.40347,
+  "Total_loss_including_pre_measurement_g": 6.40347,
+  "IPA_loss_g": 0.24628470421588297,
+  "Water_loss_g": 6.157185295784117,
+  "Fitted_window_loss_g": 0.0,
+  "Assumed_loss_g": 6.40347,
+  "Assumed_loss_since_first_measurement_g": 4.40347,
+  "Fitted_duration_h": 0.0,
+  "Assumed_duration_h": 2.201735,
+  "Average_rate_since_first_measurement_g_h": 2.0,
+  "Fitted_phases": 0,
+  "Total_phases": 2,
+  "Final_masses_g": {
+    "Al": 18.192,
+    "IPA": 36.13771529578412,
+    "PG": 36.384,
+    "MG": 0.0,
+    "Water": 903.4528147042158
+  },
+  "Notices": [
+    "Fortlaufende, sequenzielle Modellbilanz; keine direkte chemische Verdunstungsmessung.",
+    "Einwaagen sind kumulative Zugaben. Al/PG/MG gelten als nichtfluechtig; Entnahmen und Verschleppung sind nicht korrigiert.",
+    "Der eingegebene Gesamtverlust vor Messbeginn wird genau einmal als Anfangskorrektur angesetzt; seine Dauer wird nicht aus den Messdaten abgeleitet.",
+    "Rezepturzugaben werden am ersten Rohzeitstempel der neuen Rezeptur eingebucht; der reale Zugabezeitpunkt in einer Pause ist unbekannt.",
+    "Ungemessene Zeiten (auch ausgeschlossene Randpunkte/zu kurze Phasen) werden separat geschaetzt.",
+    "previous setzt die letzte Segmentrate des letzten erfolgreichen Fits fort; bis dahin gilt gap-rate.",
+    "IPA/Wasser-Anteile ungemessener Verluste sind Annahmen. Ohne Vorgabe gilt der aktuelle IPA-Anteil am IPA/Wasser-Vorrat, kein Dampfdruckmodell.",
+    "Jede Phase hat eigene Sensoroffsets. Spruenge zwischen Rezepturen identifizieren deshalb keinen eindeutigen Pausenverlust.",
+    "Phasen-Bootstrap ist bedingt auf die uebernommene Startmasse. Unsicherheit vorheriger Fits, Pausen und Vorverlust wird NICHT propagiert; kein Gesamt-Konfidenzintervall.",
+    "Ratenunterschiede nach Zugaben sind beschreibend, kein kausaler Nachweis eines Zusammensetzungseffekts.",
+    "Die Bilanz umfasst die gewaehlte CSV bis zum letzten Rohzeitstempel, nicht automatisch andere Dateien derselben Probe.",
+    "Phase 1: 2 brauchbare Punkte / unzureichende Segmentabdeckung; gesamte Dauer nur geschaetzt.",
+    "Lange Pause vor Phase 2: 2.04 h, Methode constant_fallback_before_first_fit. Lagerbedingungen pruefen.",
+    "Phase 2: 5 brauchbare Punkte / unzureichende Segmentabdeckung; gesamte Dauer nur geschaetzt.",
+    "KEIN ERFOLGREICHER MESSFIT: Das gesamte Ergebnis beruht nur auf den vorgegebenen Annahmen."
+  ]
+}

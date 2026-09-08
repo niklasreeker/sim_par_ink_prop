@@ -1,0 +1,614 @@
+{
+  "script_version": "1.2.0-whole-sample",
+  "arguments": {
+    "whole_sample": true,
+    "pre_stir_hours": 1,
+    "pre_stir_rate": 2,
+    "assumed_ipa_fraction": null,
+    "gap_mode": "previous",
+    "gap_rate": 2,
+    "gap_overrides": null,
+    "weighing": false,
+    "csv": null,
+    "input_dir": null,
+    "sample": null,
+    "phase": null,
+    "calculator": null,
+    "tables": null,
+    "calibration_field": null,
+    "no_calibration_field": false,
+    "calibration_dir": null,
+    "output_root": null,
+    "start_min": 0,
+    "end_min": null,
+    "prior_ipa_loss": null,
+    "prior_water_loss": null,
+    "segments": 1,
+    "max_gap_min": 60,
+    "max_ipa_rate": 15,
+    "max_water_rate": 30,
+    "max_rho_sd": 0.05,
+    "max_c_sd": 0.2,
+    "sigma_rho": null,
+    "sigma_c": null,
+    "strict_flags": false,
+    "bootstrap": 60,
+    "block_length": null,
+    "seed": 184
+  },
+  "gap_overrides": {},
+  "source": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Kennfeld_v2 (18)_korrigiert.csv",
+  "source_sha256": "af0bee80c3b37708679196b2adde95302c6c5b4aa1eca3f72aa8f9a0d6ea05da",
+  "calculator": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\ink_calculator.py",
+  "calculator_sha256": "92c552f1f0f45797db6fd3f5c786b4bd78e16926c775c886aa7ae237a2ca2524",
+  "tables_sha256": {
+    "ipa_density.csv": "35547d43bd0c1c424a8020b26bd3d88821901ded85bd41805b4bd4cdcd338961",
+    "ipa_density_Ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "pg_density.csv": "4866e0b39c3cbf8e49f2c7f4a91396ba027a742f3c8cfc99eee9e6cbea3d113f",
+    "pg_density_Ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "pg_sound.csv": "ea6127ca847d1d2714fe237c7dca9db0fd208c5f09ff50953e56f9bbb1d27dd7",
+    "pg_sound_claude.csv": "caa95f6a2ee8177f495ba382681756c2d0f04696a4000b52fb0a31e2423560c7",
+    "pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "pg_viscosity.csv": "8ecde964d39204748e897f86b4c930407f3495b3fa6a425c9cbffdee38066ee0"
+  },
+  "calibration_field_sha256": null,
+  "created_utc": "2026-09-08T09:36:29.338874+00:00",
+  "summary": {
+    "Sample": 9.0,
+    "Start_UTC": "2026-09-07T08:08:25.839000+00:00",
+    "End_UTC": "2026-09-07T13:33:37.095000+00:00",
+    "Duration_including_pre_stir_h": 5.419793333333334,
+    "Total_loss_g": 13.871203755950065,
+    "IPA_loss_g": 3.1005757720752616,
+    "Water_loss_g": 10.770627983874803,
+    "Fitted_window_loss_g": 6.841112385567797,
+    "Assumed_loss_g": 7.030091370382267,
+    "Fitted_duration_h": 2.400040833333333,
+    "Assumed_duration_h": 3.0197525,
+    "Overall_rate_g_h": 2.5593602749828217,
+    "Fitted_phases": 5,
+    "Total_phases": 5,
+    "Final_masses_g": {
+      "Al": 22.248,
+      "IPA": 51.725424227924734,
+      "PG": 59.506,
+      "MG": 0.0,
+      "Water": 998.9393720161252
+    },
+    "Notices": [
+      "Fortlaufende, sequenzielle Modellbilanz; keine direkte chemische Verdunstungsmessung.",
+      "Einwaagen sind kumulative Zugaben. Al/PG/MG gelten als nichtfluechtig; Entnahmen und Verschleppung sind nicht korrigiert.",
+      "Ruehrverlust vor Messbeginn wird genau einmal vor der ersten Rohmessung der Tinte angesetzt.",
+      "Rezepturzugaben werden am ersten Rohzeitstempel der neuen Rezeptur eingebucht; der reale Zugabezeitpunkt in einer Pause ist unbekannt.",
+      "Ungemessene Zeiten (auch ausgeschlossene Randpunkte/zu kurze Phasen) werden separat geschaetzt.",
+      "previous setzt die letzte Segmentrate des letzten erfolgreichen Fits fort; bis dahin gilt gap-rate.",
+      "IPA/Wasser-Anteile ungemessener Verluste sind Annahmen. Ohne Vorgabe gilt der aktuelle IPA-Anteil am IPA/Wasser-Vorrat, kein Dampfdruckmodell.",
+      "Jede Phase hat eigene Sensoroffsets. Spruenge zwischen Rezepturen identifizieren deshalb keinen eindeutigen Pausenverlust.",
+      "Phasen-Bootstrap ist bedingt auf die uebernommene Startmasse. Unsicherheit vorheriger Fits, Pausen und Ruehrphase wird NICHT propagiert; kein Gesamt-Konfidenzintervall.",
+      "Ratenunterschiede nach Zugaben sind beschreibend, kein kausaler Nachweis eines Zusammensetzungseffekts.",
+      "Die Bilanz umfasst die gewaehlte CSV bis zum letzten Rohzeitstempel, nicht automatisch andere Dateien derselben Probe.",
+      "Phase 1: PG density: temperature 22.40 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.42 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.44 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.46 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.47 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.48 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.50 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.51 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.52 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.54 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.55 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.56 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.57 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 22.59 C is outside the locally supported temperature range.",
+      "Phase 1: PG sound: temperature 22.4 C is outside locally supported anchors 25-65 C at 7.4 wt%.",
+      "Phase 1: PG sound: temperature 22.5 C is outside locally supported anchors 25-65 C at 7.4 wt%.",
+      "Phase 1: PG sound: temperature 22.6 C is outside locally supported anchors 25-65 C at 7.4 wt%.",
+      "Phase 2: PG density: temperature 22.84 C is outside the locally supported temperature range.",
+      "Phase 2: PG density: temperature 22.85 C is outside the locally supported temperature range.",
+      "Phase 2: PG density: temperature 22.86 C is outside the locally supported temperature range.",
+      "Phase 2: PG density: temperature 22.87 C is outside the locally supported temperature range.",
+      "Phase 2: PG density: temperature 22.88 C is outside the locally supported temperature range.",
+      "Phase 2: PG density: temperature 22.89 C is outside the locally supported temperature range.",
+      "Phase 2: PG density: temperature 22.90 C is outside the locally supported temperature range.",
+      "Phase 2: PG sound: temperature 22.8 C is outside locally supported anchors 25-65 C at 8.8 wt%.",
+      "Phase 2: PG sound: temperature 22.9 C is outside locally supported anchors 25-65 C at 8.8 wt%.",
+      "Phase 3: PG density: temperature 22.97 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 22.98 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.00 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.01 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.02 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.03 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.04 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.05 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.06 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.07 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.08 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.10 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.11 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.12 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.13 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.14 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.15 C is outside the locally supported temperature range.",
+      "Phase 3: PG density: temperature 23.16 C is outside the locally supported temperature range.",
+      "Phase 3: PG sound: temperature 23.0 C is outside locally supported anchors 25-65 C at 7.9 wt%.",
+      "Phase 3: PG sound: temperature 23.1 C is outside locally supported anchors 25-65 C at 7.9 wt%.",
+      "Phase 3: PG sound: temperature 23.2 C is outside locally supported anchors 25-65 C at 7.9 wt%.",
+      "Lange Pause vor Phase 4: 1.22 h, Methode previous_fitted_terminal_rates. Lagerbedingungen pruefen.",
+      "Phase 4: PG density: temperature 23.15 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.20 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.23 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.27 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.30 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.33 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.36 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.39 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.42 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.44 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.47 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.49 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.51 C is outside the locally supported temperature range.",
+      "Phase 4: PG density: temperature 23.54 C is outside the locally supported temperature range.",
+      "Phase 4: PG sound: temperature 23.2 C is outside locally supported anchors 25-65 C at 9.2 wt%.",
+      "Phase 4: PG sound: temperature 23.3 C is outside locally supported anchors 25-65 C at 9.2 wt%.",
+      "Phase 4: PG sound: temperature 23.4 C is outside locally supported anchors 25-65 C at 9.2 wt%.",
+      "Phase 4: PG sound: temperature 23.5 C is outside locally supported anchors 25-65 C at 9.2 wt%.",
+      "Phase 5: IPA sound: temperature 23.9 C is outside locally supported anchors 25-25 C at 10.0 wt%.",
+      "Phase 5: IPA sound: temperature 23.9 C is outside locally supported anchors 25-25 C at 10.1 wt%.",
+      "Phase 5: IPA sound: temperature 24.0 C is outside locally supported anchors 25-25 C at 10.0 wt%.",
+      "Phase 5: IPA sound: temperature-slope curve has an internal gap of inf wt% near 10.0 wt%.",
+      "Phase 5: IPA sound: temperature-slope curve has an internal gap of inf wt% near 10.1 wt%.",
+      "Phase 5: PG density: temperature 23.86 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.87 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.88 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.89 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.90 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.91 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.93 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.94 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.95 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.96 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.97 C is outside the locally supported temperature range.",
+      "Phase 5: PG density: temperature 23.98 C is outside the locally supported temperature range.",
+      "Phase 5: PG sound: temperature 23.9 C is outside locally supported anchors 25-65 C at 10.0 wt%.",
+      "Phase 5: PG sound: temperature 23.9 C is outside locally supported anchors 25-65 C at 10.1 wt%.",
+      "Phase 5: PG sound: temperature 24.0 C is outside locally supported anchors 25-65 C at 10.0 wt%."
+    ]
+  },
+  "phase_fits": [
+    {
+      "phase": 1,
+      "start_masses_g": [
+        18.192,
+        36.30707936246187,
+        36.384,
+        0.0,
+        907.7069206375381
+      ],
+      "noise_scales": [
+        0.01,
+        0.05
+      ],
+      "fit": {
+        "mode": "mixed",
+        "params": [
+          0.6284913304002565,
+          1.4418877433846926
+        ],
+        "rates": [
+          [
+            0.6284913304002565
+          ],
+          [
+            1.4418877433846926
+          ]
+        ],
+        "average_rates_g_h": [
+          0.6284913304002565,
+          1.4418877433846926
+        ],
+        "total_rate_g_h": 2.0703790737849492,
+        "ipa_mass_fraction_in_loss": 0.303563409405643,
+        "offset": [
+          -0.8405007639985911,
+          1.7472414190641044
+        ],
+        "rmse": [
+          0.0009635683154324728,
+          0.004148493114186065
+        ],
+        "weighted_sse": 0.22636091845406775,
+        "normalized_jacobian_condition": 1.0208474269971375,
+        "sensitivity_correlations": [
+          [
+            1.0,
+            0.0206301656393227
+          ],
+          [
+            0.0206301656393227,
+            1.0
+          ]
+        ],
+        "boundary_parameters": [],
+        "bootstrap": {
+          "successful": 60,
+          "failed": 0,
+          "block_length_points": 2,
+          "average_rates_ci95_g_h": [
+            [
+              0.5976250654943229,
+              1.3696670196479286
+            ],
+            [
+              0.6543781505680722,
+              1.5243132654144518
+            ]
+          ],
+          "ipa_share_ci95": [
+            0.29063937993719524,
+            0.31589593672871696
+          ],
+          "parameters_ci95_g_h": [
+            [
+              0.5976250654943229,
+              1.3696670196479284
+            ],
+            [
+              0.6543781505680722,
+              1.5243132654144518
+            ]
+          ],
+          "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+        }
+      }
+    },
+    {
+      "phase": 2,
+      "start_masses_g": [
+        18.192,
+        35.83878610765751,
+        51.394,
+        0.0,
+        906.6325600668329
+      ],
+      "noise_scales": [
+        0.01,
+        0.05
+      ],
+      "fit": {
+        "mode": "mixed",
+        "params": [
+          0.6383972178503662,
+          1.0497926054862095
+        ],
+        "rates": [
+          [
+            0.6383972178503662
+          ],
+          [
+            1.0497926054862095
+          ]
+        ],
+        "average_rates_g_h": [
+          0.6383972178503662,
+          1.0497926054862095
+        ],
+        "total_rate_g_h": 1.6881898233365757,
+        "ipa_mass_fraction_in_loss": 0.37815487869049214,
+        "offset": [
+          -1.107231664642154,
+          3.281037871068429
+        ],
+        "rmse": [
+          0.0015306331168903572,
+          0.008394064927885667
+        ],
+        "weighted_sse": 0.7741876168595849,
+        "normalized_jacobian_condition": 1.0111625308255983,
+        "sensitivity_correlations": [
+          [
+            1.0000000000000002,
+            0.011100233616717872
+          ],
+          [
+            0.011100233616717872,
+            0.9999999999999999
+          ]
+        ],
+        "boundary_parameters": [],
+        "bootstrap": {
+          "successful": 60,
+          "failed": 0,
+          "block_length_points": 2,
+          "average_rates_ci95_g_h": [
+            [
+              0.6012676253726219,
+              0.9639938398839526
+            ],
+            [
+              0.674014704379228,
+              1.20748870981045
+            ]
+          ],
+          "ipa_share_ci95": [
+            0.336689207621647,
+            0.4056806489464139
+          ],
+          "parameters_ci95_g_h": [
+            [
+              0.6012676253726219,
+              0.9639938398839526
+            ],
+            [
+              0.674014704379228,
+              1.20748870981045
+            ]
+          ],
+          "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+        }
+      }
+    },
+    {
+      "phase": 3,
+      "start_masses_g": [
+        18.192,
+        35.35859968032091,
+        51.394,
+        0.0,
+        1005.9229323138013
+      ],
+      "noise_scales": [
+        0.01,
+        0.05
+      ],
+      "fit": {
+        "mode": "mixed",
+        "params": [
+          0.5409413891531456,
+          1.5172929647014086
+        ],
+        "rates": [
+          [
+            0.5409413891531456
+          ],
+          [
+            1.5172929647014086
+          ]
+        ],
+        "average_rates_g_h": [
+          0.5409413891531456,
+          1.5172929647014086
+        ],
+        "total_rate_g_h": 2.058234353854554,
+        "ipa_mass_fraction_in_loss": 0.26281817138077535,
+        "offset": [
+          -1.0107945210001354,
+          3.112188558444383
+        ],
+        "rmse": [
+          0.0025123986236998625,
+          0.014141950987673164
+        ],
+        "weighted_sse": 2.719268211237003,
+        "normalized_jacobian_condition": 1.0343850008816673,
+        "sensitivity_correlations": [
+          [
+            1.0000000000000004,
+            0.033794174403674146
+          ],
+          [
+            0.033794174403674146,
+            0.9999999999999997
+          ]
+        ],
+        "boundary_parameters": [],
+        "bootstrap": {
+          "successful": 60,
+          "failed": 0,
+          "block_length_points": 3,
+          "average_rates_ci95_g_h": [
+            [
+              0.5011234516075168,
+              1.3564957181721875
+            ],
+            [
+              0.5920128503171326,
+              1.7446242682533002
+            ]
+          ],
+          "ipa_share_ci95": [
+            0.22652334082025094,
+            0.3023287193875601
+          ],
+          "parameters_ci95_g_h": [
+            [
+              0.5011234516075168,
+              1.3564957181721875
+            ],
+            [
+              0.5920128503171326,
+              1.7446242682533004
+            ]
+          ],
+          "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+        }
+      }
+    },
+    {
+      "phase": 4,
+      "start_masses_g": [
+        22.248,
+        42.48862216508533,
+        59.506,
+        0.0,
+        1003.1685718502871
+      ],
+      "noise_scales": [
+        0.01,
+        0.05
+      ],
+      "fit": {
+        "mode": "mixed",
+        "params": [
+          0.5125532734924333,
+          6.250826371232948
+        ],
+        "rates": [
+          [
+            0.5125532734924333
+          ],
+          [
+            6.250826371232948
+          ]
+        ],
+        "average_rates_g_h": [
+          0.5125532734924333,
+          6.250826371232948
+        ],
+        "total_rate_g_h": 6.763379644725382,
+        "ipa_mass_fraction_in_loss": 0.07578360234326974,
+        "offset": [
+          -1.0200285858335616,
+          3.268132485975246
+        ],
+        "rmse": [
+          0.0018362821794960335,
+          0.004103390248261081
+        ],
+        "weighted_sse": 0.5663622585481936,
+        "normalized_jacobian_condition": 1.0528447880193883,
+        "sensitivity_correlations": [
+          [
+            1.0,
+            0.05145035151471672
+          ],
+          [
+            0.05145035151471672,
+            0.9999999999999994
+          ]
+        ],
+        "boundary_parameters": [],
+        "bootstrap": {
+          "successful": 60,
+          "failed": 0,
+          "block_length_points": 2,
+          "average_rates_ci95_g_h": [
+            [
+              0.4960340141332246,
+              5.576344663443204
+            ],
+            [
+              0.5258857895652186,
+              6.853574187188931
+            ]
+          ],
+          "ipa_share_ci95": [
+            0.07131684942814923,
+            0.08196160418759371
+          ],
+          "parameters_ci95_g_h": [
+            [
+              0.4960340141332246,
+              5.576344663443204
+            ],
+            [
+              0.5258857895652186,
+              6.853574187188931
+            ]
+          ],
+          "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+        }
+      }
+    },
+    {
+      "phase": 5,
+      "start_masses_g": [
+        22.248,
+        52.49031926433341,
+        59.506,
+        0.0,
+        999.1647647615343
+      ],
+      "noise_scales": [
+        0.01,
+        0.05
+      ],
+      "fit": {
+        "mode": "mixed",
+        "params": [
+          1.6390324994813967,
+          0.48297611736045587
+        ],
+        "rates": [
+          [
+            1.6390324994813967
+          ],
+          [
+            0.48297611736045587
+          ]
+        ],
+        "average_rates_g_h": [
+          1.6390324994813967,
+          0.48297611736045587
+        ],
+        "total_rate_g_h": 2.1220086168418524,
+        "ipa_mass_fraction_in_loss": 0.7723967218949089,
+        "offset": [
+          -1.0222670479424627,
+          3.753563617208526
+        ],
+        "rmse": [
+          0.014274605188748046,
+          0.06378795394486313
+        ],
+        "weighted_sse": 54.978071405026746,
+        "normalized_jacobian_condition": 1.016041157184294,
+        "sensitivity_correlations": [
+          [
+            0.9999999999999999,
+            -0.015912514112216457
+          ],
+          [
+            -0.015912514112216457,
+            0.9999999999999999
+          ]
+        ],
+        "boundary_parameters": [],
+        "bootstrap": {
+          "successful": 60,
+          "failed": 0,
+          "block_length_points": 2,
+          "average_rates_ci95_g_h": [
+            [
+              1.2738106293646998,
+              0.2636649731235161
+            ],
+            [
+              2.100067658365206,
+              0.6495800989392344
+            ]
+          ],
+          "ipa_share_ci95": [
+            0.7091726601314824,
+            0.8518854780642463
+          ],
+          "parameters_ci95_g_h": [
+            [
+              1.2738106293646998,
+              0.2636649731235161
+            ],
+            [
+              2.100067658365206,
+              0.6495800989392344
+            ]
+          ],
+          "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+        }
+      }
+    }
+  ]
+}
