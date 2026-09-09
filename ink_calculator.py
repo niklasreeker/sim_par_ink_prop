@@ -95,7 +95,7 @@ from scipy.interpolate import interp1d, PchipInterpolator
 RHO_WATER = 0.998       # g/cm3  (~20-25 C)
 RHO_IPA = 0.785         # g/cm3
 RHO_PG = 1.036          # g/cm3
-RHO_PIGMENT = 2.450 # Sinnvolle Werte: 2.400 bis 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
+RHO_PIGMENT = 2.500 # Sinnvolle Werte: 2.400 bis 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
 RHO_MG_APPARENT = 1.440  # g/cm3   fitted apparent MG density in this ink system
 BULK_MODULUS_ALUMINUM = 76.0e9   # Pa   (compressibility beta_Al = 1 / K_Al)
 
@@ -1722,7 +1722,7 @@ class InkCalculator:
     def paste_composition(paste, ipa=0.0, pg=0.0,
                           solids_fraction=0.20,
                           ipa_fraction=0.40, pg_fraction=0.40,
-                          rho_particle=2.20):
+                          rho_particle=RHO_PIGMENT):
         """
         Convert a pigment-PASTE dosage [mass %] into effective model
         inputs. Defaults match the internal composition of ECOLEAF
@@ -1733,7 +1733,7 @@ class InkCalculator:
 
         Mapping:
           * the encapsulated pigment (metal + shell) is one particle
-            phase with density rho_particle (estimate ~2.2 g/cm3;
+            phase with density rho_particle (estimate ~2.5 g/cm3 as rho_pigment;
             determinable exactly from a measured paste density via
             1/rho_paste = solids/rho_p + w_IPA/rho_IPA + w_PG/rho_PG).
             The exact value has little effect at phi < 1 vol-%.
@@ -1765,7 +1765,7 @@ class InkCalculator:
     def compute_from_paste(self, paste, ipa=0.0, pg=0.0, temperature=25.0,
                            solids_fraction=0.20,
                            ipa_fraction=0.40, pg_fraction=0.40,
-                           rho_particle=2.20, mg=0.0):
+                           rho_particle=RHO_PIGMENT, mg=0.0):
         """
         Compute all four properties for an ink specified via pigment-
         PASTE dosage (see paste_composition). The effective particle
