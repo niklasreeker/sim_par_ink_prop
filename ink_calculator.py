@@ -95,7 +95,7 @@ from scipy.interpolate import interp1d, PchipInterpolator
 RHO_WATER = 0.998       # g/cm3  (~20-25 C)
 RHO_IPA = 0.785         # g/cm3
 RHO_PG = 1.036          # g/cm3
-RHO_PIGMENT = 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
+RHO_PIGMENT = 2.450 # Sinnvolle Werte: 2.400 bis 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
 RHO_MG_APPARENT = 1.440  # g/cm3   fitted apparent MG density in this ink system
 BULK_MODULUS_ALUMINUM = 76.0e9   # Pa   (compressibility beta_Al = 1 / K_Al)
 
