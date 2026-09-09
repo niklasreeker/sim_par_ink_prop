@@ -73,6 +73,29 @@ QUICK START
 Convention: water is the remainder,
 water = 100 - al - ipa - pg - mg.
 
+TERMINOLOGY AND API COMPATIBILITY
+---------------------------------
+``pigment`` always means the complete encapsulated particle phase: the
+aluminum flake together with its silica shell.  It does not mean elemental
+aluminum alone.  ``paste`` means the complete commercial SL 120 paste,
+including pigment, IPA and PG.
+
+``rho_pigment`` is the effective material density of the encapsulated solid
+particle.  ``rho_paste`` would be the bulk density of the complete paste.
+These quantities are not interchangeable.  The model does not require
+``rho_paste`` because paste input is expanded into pigment, IPA and PG before
+the property models are evaluated.
+
+The public names ``al``, ``pct_al``, ``aluminum``, ``vol_fraction_al`` and the
+composition key ``"Al"`` are retained as backward-compatible aliases.  In
+this module they all refer to the complete encapsulated pigment, not to the
+uncoated aluminum core.
+
+``compute()`` accepts an already expanded final-ink composition.
+``compute_from_paste()`` is a convenience adapter that expands a paste dosage
+and then delegates to ``compute()``.  Thus both methods use the same physical
+models; both entry points are retained for backward compatibility.
+
 MG density is represented by an experimentally fitted apparent density
 in solution. The currently available measurements do not establish a
 reproducible direct MG contribution to sound velocity. Consequently, MG
@@ -95,9 +118,13 @@ from scipy.interpolate import interp1d, PchipInterpolator
 RHO_WATER = 0.998       # g/cm3  (~20-25 C)
 RHO_IPA = 0.785         # g/cm3
 RHO_PG = 1.036          # g/cm3
-RHO_PIGMENT = 2.500 # Sinnvolle Werte: 2.400 bis 2.700     # g/cm3   intrinsic Al density, NOT powder packing density
+RHO_PIGMENT = 2.500  # g/cm3; effective density of encapsulated Al/SiO2 pigment
 RHO_MG_APPARENT = 1.440  # g/cm3   fitted apparent MG density in this ink system
-BULK_MODULUS_ALUMINUM = 76.0e9   # Pa   (compressibility beta_Al = 1 / K_Al)
+BULK_MODULUS_PIGMENT = 76.0e9  # Pa; effective placeholder, currently the Al value
+
+# Backward-compatible module-level alias.  New code should use
+# BULK_MODULUS_PIGMENT because the model phase includes the silica shell.
+BULK_MODULUS_ALUMINUM = BULK_MODULUS_PIGMENT
 
 
 # =====================================================================
@@ -349,16 +376,18 @@ class PchipTemperatureTable:
 # =====================================================================
 class InkDensityCalculator:
     """
-    Theoretical density of an ink made of aluminum pigment, water, IPA,
-    PG and optional methyl gallate. Empirical binary density tables
-    account for the volume contraction of real solvent/water mixtures.
+    Theoretical density of an ink made of encapsulated pigment, water,
+    IPA, PG and optional methyl gallate.  The pigment is the complete
+    Al/SiO2 particle.  Empirical binary density tables account for the
+    volume contraction of real solvent/water mixtures.
 
     MG is introduced by replacing the same mass of water in the reference
     mixture. Its volume is calculated with an experimentally fitted
     apparent density rather than the crystalline solid density.
     """
 
-    DENSITY_ALUMINUM = RHO_PIGMENT   # g/cm3
+    DENSITY_PIGMENT = RHO_PIGMENT   # g/cm3; complete encapsulated particle
+    DENSITY_ALUMINUM = RHO_PIGMENT  # backward-compatible class attribute
     DENSITY_MG_APPARENT = RHO_MG_APPARENT  # g/cm3
 
     def __init__(self, tables_dir="tables_parameters"):
@@ -404,7 +433,7 @@ class InkDensityCalculator:
         water. Handles single solvents directly and applies the
         pseudo-binary approximation when IPA and PG coexist.
 
-        :param pct_al:  mass percent aluminum pigment
+        :param pct_al:  mass percent encapsulated pigment (legacy name)
         :param pct_ipa: mass percent isopropanol
         :param pct_pg:  mass percent propylene glycol
         :param target_temp: temperature in Celsius
@@ -413,22 +442,22 @@ class InkDensityCalculator:
         if pct_water < 0:
             raise ValueError("Total mass percentage exceeds 100%. Check your inputs.")
 
-        frac_al = pct_al / 100.0
-        term_al = frac_al / self.DENSITY_ALUMINUM
+        frac_pigment = pct_al / 100.0
+        term_pigment = frac_pigment / self.DENSITY_PIGMENT
 
         # Case 1: IPA only
         if pct_ipa > 0 and pct_pg == 0:
             pct_liquid_total = pct_ipa + pct_water
             pct_solvent_in_liquid = (pct_ipa / pct_liquid_total) * 100.0
             rho_liquid = self.get_liquid_density('IPA', pct_solvent_in_liquid, target_temp)
-            return 1.0 / (term_al + ((pct_liquid_total / 100.0) / rho_liquid))
+            return 1.0 / (term_pigment + ((pct_liquid_total / 100.0) / rho_liquid))
 
         # Case 2: PG only
         elif pct_pg > 0 and pct_ipa == 0:
             pct_liquid_total = pct_pg + pct_water
             pct_solvent_in_liquid = (pct_pg / pct_liquid_total) * 100.0
             rho_liquid = self.get_liquid_density('PG', pct_solvent_in_liquid, target_temp)
-            return 1.0 / (term_al + ((pct_liquid_total / 100.0) / rho_liquid))
+            return 1.0 / (term_pigment + ((pct_liquid_total / 100.0) / rho_liquid))
 
         # Case 3: IPA + PG (pseudo-binary approximation)
         elif pct_ipa > 0 and pct_pg > 0:
@@ -448,17 +477,20 @@ class InkDensityCalculator:
             term_mix_ipa = (mass_mix_ipa / 100.0) / rho_mix_ipa
             term_mix_pg = (mass_mix_pg / 100.0) / rho_mix_pg
 
-            return 1.0 / (term_al + term_mix_ipa + term_mix_pg)
+            return 1.0 / (term_pigment + term_mix_ipa + term_mix_pg)
 
-        # Case 4: pure water (+ Al), no solvents
+        # Case 4: pure water (+ encapsulated pigment), no solvents
         else:
             rho_water = self.get_liquid_density('IPA', 0.0, target_temp)
-            return 1.0 / (term_al + ((pct_water / 100.0) / rho_water))
+            return 1.0 / (term_pigment + ((pct_water / 100.0) / rho_water))
 
     def calculate_density(self, pct_al, pct_ipa=0.0, pct_pg=0.0,
                           target_temp=25, pct_mg=0.0):
         """
         Total ink density [g/cm3], including optional methyl gallate.
+
+        ``pct_al`` is retained for API compatibility and denotes the mass
+        percent of complete encapsulated pigment, not elemental aluminum.
 
         The reference calculation treats the MG mass as water. The final
         specific volume then replaces that water mass by MG using its
@@ -469,7 +501,7 @@ class InkDensityCalculator:
         ``pct_mg`` is the MG mass percentage in the final ink. The default
         value of zero reproduces the original model exactly.
 
-        :param pct_al: mass percent aluminum pigment
+        :param pct_al: mass percent encapsulated pigment (legacy name)
         :param pct_ipa: mass percent isopropanol
         :param pct_pg: mass percent propylene glycol
         :param target_temp: temperature in Celsius
@@ -483,7 +515,8 @@ class InkDensityCalculator:
         total_non_water = pct_al + pct_ipa + pct_pg + pct_mg
         if total_non_water > 100.0 + 1e-9:
             raise ValueError(
-                f"Al + IPA + PG + MG = {total_non_water:.3f}% exceeds 100%.")
+                f"Pigment + IPA + PG + MG = "
+                f"{total_non_water:.3f}% exceeds 100%.")
         if self.DENSITY_MG_APPARENT <= 0.0:
             raise ValueError("Apparent MG density must be positive.")
 
@@ -995,25 +1028,36 @@ class _PropertyTable:
 
 @dataclass
 class SoundResult:
-    """Result container for the sound-velocity model."""
+    """Result container for the sound-velocity model.
+
+    The ``"Al"`` composition key is a legacy key for the complete
+    encapsulated pigment.  ``vol_fraction_al`` remains available as a
+    read-only compatibility alias for ``vol_fraction_pigment``.
+    """
     sound_velocity: float          # m/s
-    density: float                 # g/cm3 (from the Wood/Urick mixing)
+    density: float                 # g/cm3; Wood/Urick acoustic reference state
     temperature: float             # C
-    composition: dict              # {'Al', 'IPA', 'PG', 'MG', 'Water'} in mass %
-    vol_fraction_al: float = 0.0   # phi_Al (-)
+    composition: dict              # mass %; "Al" is the legacy pigment key
+    vol_fraction_pigment: float = 0.0  # complete-pigment volume fraction (-)
     calibration_offset: float = 0.0  # additive offset [m/s] included in sound_velocity
     warnings: list = field(default_factory=list)
+
+    @property
+    def vol_fraction_al(self):
+        """Backward-compatible alias for ``vol_fraction_pigment``."""
+        return self.vol_fraction_pigment
 
 
 class InkSoundCalculator:
     """
-    Sound velocity of an Al-pigment / Water / IPA / PG / MG ink.
+    Sound velocity of an encapsulated-pigment / Water / IPA / PG / MG ink.
 
     Sound velocity cannot be mixed linearly. Instead density (rho) and
     adiabatic compressibility (beta) are mixed over volume fractions and
     converted back via Newton-Laplace:  c = 1 / sqrt(rho * beta).
     The solid pigment is added with the Wood/Urick effective-medium
-    equation; beta_Al comes from the bulk modulus K_Al.
+    equation.  The effective pigment compressibility is currently
+    approximated using the aluminum bulk modulus.
 
     v3: the binary sound tables are evaluated as deviations from the
     Marczak pure-water reference curve (see _PropertyTable), which
@@ -1031,8 +1075,10 @@ class InkSoundCalculator:
     MG dose measurements establish a stable acoustic response.
     """
 
-    DENSITY_ALUMINUM = RHO_PIGMENT          # g/cm3
-    BULK_MODULUS_ALUMINUM = BULK_MODULUS_ALUMINUM  # Pa
+    DENSITY_PIGMENT = RHO_PIGMENT           # g/cm3; complete coated particle
+    DENSITY_ALUMINUM = RHO_PIGMENT          # backward-compatible class attribute
+    BULK_MODULUS_PIGMENT = BULK_MODULUS_PIGMENT  # Pa
+    BULK_MODULUS_ALUMINUM = BULK_MODULUS_PIGMENT  # backward-compatible alias
 
     def __init__(self, tables_dir="tables_parameters"):
         self.tables_dir = tables_dir
@@ -1094,7 +1140,11 @@ class InkSoundCalculator:
 
     def calculate(self, pct_al, pct_ipa=0.0, pct_pg=0.0, temperature=25.0,
                   pct_mg=0.0):
-        """Compute sound velocity (and Wood-model density) -> SoundResult."""
+        """Compute sound velocity and Wood-model density.
+
+        ``pct_al`` is the legacy parameter name for the complete
+        encapsulated-pigment mass percentage.
+        """
         pct_water = 100.0 - pct_al - pct_ipa - pct_pg - pct_mg
         values = (pct_al, pct_ipa, pct_pg, pct_mg, temperature)
         if not all(np.isfinite(value) for value in values):
@@ -1103,7 +1153,7 @@ class InkSoundCalculator:
             raise ValueError("Mass percentages must be non-negative.")
         if pct_water < -1e-9:
             raise ValueError(
-                f"Al + IPA + PG + MG = "
+                f"Pigment + IPA + PG + MG = "
                 f"{pct_al + pct_ipa + pct_pg + pct_mg:.3f}% exceeds 100%.")
         pct_water = max(pct_water, 0.0)
 
@@ -1112,13 +1162,14 @@ class InkSoundCalculator:
         pct_water_acoustic = pct_water + pct_mg
 
         warnings = []
-        beta_al = 1.0 / self.BULK_MODULUS_ALUMINUM
-        rho_al_si = self.DENSITY_ALUMINUM * 1000.0
+        beta_pigment = 1.0 / self.BULK_MODULUS_PIGMENT
+        rho_pigment_si = self.DENSITY_PIGMENT * 1000.0
 
-        # phase list: (volume_cm3, rho_SI, beta_SI); start with aluminum
+        # Phase list: (volume_cm3, rho_SI, beta_SI); start with pigment.
         phases = []
         if pct_al > 0:
-            phases.append((pct_al / self.DENSITY_ALUMINUM, rho_al_si, beta_al))
+            phases.append((pct_al / self.DENSITY_PIGMENT,
+                           rho_pigment_si, beta_pigment))
 
         # assemble the liquid phase(s)
         if pct_ipa > 0 and pct_pg == 0:                         # IPA only
@@ -1135,7 +1186,7 @@ class InkSoundCalculator:
                                              temperature, warnings))
             phases.append(self._binary_phase("PG", pct_pg, water_pg,
                                              temperature, warnings))
-        else:                                                   # water (+ Al) only
+        else:                                      # water (+ encapsulated pigment) only
             phases.append(self._binary_phase("IPA", 0.0, pct_water_acoustic,
                                              temperature, warnings))
 
@@ -1149,12 +1200,13 @@ class InkSoundCalculator:
         beta_mix = sum((v / V_total) * beta for v, _, beta in phases)
         c_mix = float(1.0 / np.sqrt(rho_mix_si * beta_mix)) + self.calibration_offset
 
-        vol_al = (pct_al / self.DENSITY_ALUMINUM) if pct_al > 0 else 0.0
-        phi_al = vol_al / V_total
+        vol_pigment = (pct_al / self.DENSITY_PIGMENT) if pct_al > 0 else 0.0
+        phi_pigment = vol_pigment / V_total
 
         if pct_al > 5.0:
             warnings.append(
-                "Al > 5 % : Wood/Urick is a dilute-suspension model; "
+                "Encapsulated pigment > 5 %: Wood/Urick is a "
+                "dilute-suspension model; "
                 "accuracy may degrade at high pigment loading.")
         if pct_mg > 0.30:
             warnings.append(
@@ -1172,7 +1224,7 @@ class InkSoundCalculator:
                 "MG": pct_mg,
                 "Water": pct_water,
             },
-            vol_fraction_al=phi_al,
+            vol_fraction_pigment=phi_pigment,
             calibration_offset=self.calibration_offset,
             warnings=warnings,
         )
@@ -1359,14 +1411,18 @@ class InkViscosityModel:
         return f"Krieger-Dougherty ([eta]={self.intrinsic_viscosity}, phi_max={self.phi_max})"
 
     def estimate(self, water, ipa, pg, aluminum, temperature_C, verbose=False):
-        """Estimate the ink viscosity. All fractions in mass percent."""
+        """Estimate the ink viscosity; all fractions are mass percentages.
+
+        ``aluminum`` is retained for API compatibility and denotes the
+        complete encapsulated-pigment fraction.
+        """
         warnings = []
         total = water + ipa + pg + aluminum
         if abs(total - 100.0) > 0.5:
             warnings.append(f"Sum of fractions = {total:.2f} % (not 100). "
                             f"Ratios are used instead.")
 
-        m_w, m_i, m_p, m_al = water, ipa, pg, aluminum
+        m_w, m_i, m_p, m_pigment = water, ipa, pg, aluminum
         carrier_mass = m_w + m_i + m_p
         if carrier_mass <= 0:
             raise ValueError("Liquid carrier (Water+IPA+PG) is 0 -- not computable.")
@@ -1409,9 +1465,10 @@ class InkViscosityModel:
         rho_carrier = 1.0 / inv_rho
 
         # --- Step 2: pigment volume fraction + suspension factor ---
-        v_al = m_al / self.rho_pigment
+        v_pigment = m_pigment / self.rho_pigment
         v_carrier = carrier_mass / rho_carrier
-        phi = v_al / (v_al + v_carrier) if (v_al + v_carrier) > 0 else 0.0
+        phi = (v_pigment / (v_pigment + v_carrier)
+               if (v_pigment + v_carrier) > 0 else 0.0)
 
         susp_factor, susp_warn = self._suspension_factor(phi)
         warnings.extend(susp_warn)
@@ -1455,7 +1512,8 @@ class InkViscosityModel:
         print("=" * 60)
         print("Ink viscosity (estimate)")
         print("-" * 60)
-        print(f"  Composition [mass %]: Water {water}, IPA {ipa}, PG {pg}, Al {aluminum}")
+        print(f"  Composition [mass %]: Water {water}, IPA {ipa}, PG {pg}, "
+              f"encapsulated pigment {aluminum}")
         print(f"  Temperature:          {r['temperature_C']} C")
         print(f"  Suspension model:     {r['suspension_model']}")
         print("-" * 60)
@@ -1485,16 +1543,31 @@ class InkViscosityModel:
 # =====================================================================
 @dataclass
 class InkProperties:
-    """Combined result of all four property models."""
-    composition: dict          # mass % {'Al', 'IPA', 'PG', 'MG', 'Water'}
+    """Combined result of all four property models.
+
+    The ``"Al"`` composition key is retained for compatibility and contains
+    the complete encapsulated-pigment mass percentage.  It must not be read
+    as the mass percentage of the uncoated aluminum core.
+    """
+    composition: dict          # mass %; "Al" is the legacy pigment key
     temperature: float         # C
     density: float             # g/cm3
     refractive_index: float    # nD
     sound_velocity: float      # m/s
     viscosity: float           # mPa.s
-    vol_fraction_al: float     # phi_Al (-)
+    vol_fraction_pigment: float  # complete-pigment volume fraction (-)
     details: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
+
+    @property
+    def vol_fraction_al(self):
+        """Backward-compatible alias for ``vol_fraction_pigment``."""
+        return self.vol_fraction_pigment
+
+    @property
+    def pigment_mass_percent(self):
+        """Mass percentage of the complete encapsulated pigment."""
+        return float(self.composition["Al"])
 
     def __str__(self):
         c = self.composition
@@ -1503,7 +1576,7 @@ class InkProperties:
             "  INK PROPERTIES",
             "-" * 56,
             "  Composition (mass %):",
-            f"     Aluminum : {c['Al']:7.3f} %",
+            f"     Pigment  : {c['Al']:7.3f} %  (encapsulated Al/SiO2)",
             f"     IPA      : {c['IPA']:7.3f} %",
             f"     PG       : {c['PG']:7.3f} %",
             f"     MG       : {c['MG']:7.3f} %",
@@ -1514,7 +1587,7 @@ class InkProperties:
             f"  Refractive index   : {self.refractive_index:9.5f}  nD",
             f"  Sound velocity     : {self.sound_velocity:9.2f}  m/s",
             f"  Viscosity          : {self.viscosity:9.3f}  mPa.s",
-            f"  Al volume fraction : {self.vol_fraction_al * 100:9.3f}  %",
+            f"  Pigment vol. frac. : {self.vol_fraction_pigment * 100:9.3f}  %",
             "=" * 56,
         ]
         for w in self.warnings:
@@ -1526,13 +1599,21 @@ class InkCalculator:
     """
     One reusable entry point for all ink properties.
 
-    The aluminum / IPA / PG / MG mass percentages are given explicitly
-    and water is taken as the remainder
+    The encapsulated-pigment / IPA / PG / MG mass percentages are given
+    explicitly and water is taken as the remainder
     (water = 100 - al - ipa - pg - mg), unless an explicit ``water``
-    value is supplied. ``rho_pigment`` is the
-    intrinsic/effective density of one pigment particle, not the loose or
-    tapped packing density of a powder bed. It is applied consistently to
-    density, sound and viscosity calculations.
+    value is supplied.  The public argument ``al`` is a legacy name for the
+    complete encapsulated-pigment fraction.
+
+    ``rho_pigment`` is the effective material density of one complete
+    pigment particle (Al core plus SiO2 shell), not pure-aluminum density,
+    powder-bed density or whole-paste density.  It is applied consistently
+    to density, sound and viscosity calculations.
+
+    ``compute()`` accepts an expanded final composition.  In contrast,
+    ``compute_from_paste()`` accepts a paste dosage, expands it into pigment,
+    IPA and PG, and then calls ``compute()``.  The two methods are input
+    routes to the same models, not separate calculation methods.
 
         ink = InkCalculator(tables_dir="tables_parameters")
         print(ink.compute(
@@ -1554,12 +1635,15 @@ class InkCalculator:
 
         # one shared density calculator (reused by the optical model)
         self.density_calc = InkDensityCalculator(tables_dir=tables_dir)
-        self.density_calc.DENSITY_ALUMINUM = float(rho_pigment)
+        self.rho_pigment = float(rho_pigment)
+        self.density_calc.DENSITY_PIGMENT = self.rho_pigment
+        self.density_calc.DENSITY_ALUMINUM = self.rho_pigment
         self.density_calc.DENSITY_MG_APPARENT = float(rho_mg_apparent)
         self.refractive_calc = InkRefractiveCalculator(
             tables_dir=tables_dir, density_calculator=self.density_calc)
         self.sound_calc = InkSoundCalculator(tables_dir=tables_dir)
-        self.sound_calc.DENSITY_ALUMINUM = float(rho_pigment)
+        self.sound_calc.DENSITY_PIGMENT = self.rho_pigment
+        self.sound_calc.DENSITY_ALUMINUM = self.rho_pigment
         self.viscosity_model = InkViscosityModel(
             tables_dir=tables_dir,
             suspension_model=suspension_model,
@@ -1567,12 +1651,12 @@ class InkCalculator:
             batchelor_coeff=batchelor_coeff,
             intrinsic_viscosity=intrinsic_viscosity,
             phi_max=phi_max,
-            rho_pigment=rho_pigment)
+            rho_pigment=self.rho_pigment)
 
     # ---- helpers -----------------------------------------------------
     @staticmethod
     def _validate_state(al, ipa, pg, temperature, mg=0.0):
-        values = {"Al": al, "IPA": ipa, "PG": pg, "MG": mg,
+        values = {"Pigment": al, "IPA": ipa, "PG": pg, "MG": mg,
                   "temperature": temperature}
         if not all(np.isfinite(value) for value in values.values()):
             raise ValueError("Composition and temperature must be finite.")
@@ -1580,7 +1664,7 @@ class InkCalculator:
             raise ValueError("Mass percentages must be non-negative.")
         if al + ipa + pg + mg > 100.0 + 1e-9:
             raise ValueError(
-                f"Al + IPA + PG + MG = "
+                f"Pigment + IPA + PG + MG = "
                 f"{al + ipa + pg + mg:.3f}% exceeds 100%.")
 
     @classmethod
@@ -1593,13 +1677,14 @@ class InkCalculator:
             raise ValueError("Water mass percentage must be finite and non-negative.")
         if abs(al + ipa + pg + mg + water - 100.0) > 1e-6:
             raise ValueError(
-                "Explicit Al + IPA + PG + MG + water must sum to 100 mass %."
+                "Explicit pigment + IPA + PG + MG + water must sum to "
+                "100 mass %."
             )
         return max(water, 0.0)
 
     # ---- individual properties --------------------------------------
     def density(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0, mg=0.0):
-        """Ink density [g/cm3], including optional MG."""
+        """Ink density [g/cm3]; ``al`` means encapsulated pigment."""
         self._validate_state(al, ipa, pg, temperature, mg=mg)
         return self.density_calc.calculate_density(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature,
@@ -1607,14 +1692,14 @@ class InkCalculator:
 
     def refractive_index(self, al=0.0, ipa=0.0, pg=0.0,
                          temperature=25.0, mg=0.0):
-        """Matrix refractive index; direct MG effects are not modelled."""
+        """Matrix refractive index; ``al`` means encapsulated pigment."""
         self._validate_state(al, ipa, pg, temperature, mg=mg)
         return self.refractive_calc.calculate_refractive_index(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, target_temp=temperature)
 
     def sound_velocity(self, al=0.0, ipa=0.0, pg=0.0,
                        temperature=25.0, mg=0.0):
-        """Sound velocity [m/s]; direct MG contribution is set to zero."""
+        """Sound velocity [m/s]; ``al`` means encapsulated pigment."""
         self._validate_state(al, ipa, pg, temperature, mg=mg)
         return self.sound_calc.sound_velocity(
             pct_al=al, pct_ipa=ipa, pct_pg=pg, temperature=temperature,
@@ -1622,7 +1707,7 @@ class InkCalculator:
 
     def viscosity(self, al=0.0, ipa=0.0, pg=0.0, temperature=25.0,
                   water=None, mg=0.0):
-        """Ink viscosity [mPa.s]; direct MG effects are not modelled."""
+        """Ink viscosity [mPa.s]; ``al`` means encapsulated pigment."""
         water = self._water_remainder(
             al, ipa, pg, water, temperature=temperature, mg=mg)
         return self.viscosity_model.estimate(
@@ -1635,6 +1720,11 @@ class InkCalculator:
         """
         Compute all four properties at once and return an InkProperties
         object (printable). Water is the remainder unless given explicitly.
+
+        ``al`` is the backward-compatible input name for the mass percentage
+        of complete encapsulated pigment.  This method expects the paste to
+        have already been expanded into pigment, IPA and PG.  Use
+        ``compute_from_paste()`` when the input is a paste dosage.
 
         MG changes density through its apparent density. Its direct sound,
         refractive-index and viscosity effects are currently set to zero;
@@ -1674,6 +1764,11 @@ class InkCalculator:
             "direct_refractive_effect": "not modelled",
             "direct_viscosity_effect": "not modelled",
         }
+        details["pigment_model"] = {
+            "rho_pigment_g_cm3": self.density_calc.DENSITY_PIGMENT,
+            "bulk_modulus_pigment_Pa": self.sound_calc.BULK_MODULUS_PIGMENT,
+            "legacy_composition_key": "Al",
+        }
         if mg > 0.30:
             warnings.append(
                 "MG > 0.30 % is outside the range used to fit the apparent "
@@ -1692,7 +1787,7 @@ class InkCalculator:
             refractive_index=n_d,
             sound_velocity=sound.sound_velocity,
             viscosity=visc["viscosity_mPas"],
-            vol_fraction_al=sound.vol_fraction_al,
+            vol_fraction_pigment=sound.vol_fraction_pigment,
             details=details,
             warnings=warnings,
         )
@@ -1719,13 +1814,29 @@ class InkCalculator:
 
     # ---- pigment-paste mode -----------------------------------------
     @staticmethod
+    def _resolve_rho_pigment(rho_pigment, rho_particle):
+        """Resolve the deprecated ``rho_particle`` keyword alias."""
+        if rho_particle is not None:
+            if (not np.isclose(rho_pigment, RHO_PIGMENT)
+                    and not np.isclose(rho_pigment, rho_particle)):
+                raise ValueError(
+                    "rho_pigment and legacy rho_particle specify different "
+                    "values.")
+            rho_pigment = rho_particle
+        rho_pigment = float(rho_pigment)
+        if not np.isfinite(rho_pigment) or rho_pigment <= 0.0:
+            raise ValueError("rho_pigment must be finite and positive.")
+        return rho_pigment
+
+    @staticmethod
     def paste_composition(paste, ipa=0.0, pg=0.0,
                           solids_fraction=0.20,
                           ipa_fraction=0.40, pg_fraction=0.40,
-                          rho_particle=RHO_PIGMENT):
+                          rho_pigment=RHO_PIGMENT, *, rho_particle=None):
         """
-        Convert a pigment-PASTE dosage [mass %] into effective model
-        inputs. Defaults match the internal composition of ECOLEAF
+        Expand a pigment-paste dosage [mass %] into final-ink model inputs.
+
+        Defaults match the internal composition of ECOLEAF
         SL 120:  20 % encapsulated Al pigment + 40 % IPA + 40 % PG.
         (Consistent with the SDS: PG is not hazardous, hence absent
         from SDS section 3 but present in its DNEL/PNEC tables;
@@ -1733,46 +1844,65 @@ class InkCalculator:
 
         Mapping:
           * the encapsulated pigment (metal + shell) is one particle
-            phase with density rho_particle (estimate ~2.5 g/cm3 as rho_pigment;
-            determinable exactly from a measured paste density via
-            1/rho_paste = solids/rho_p + w_IPA/rho_IPA + w_PG/rho_PG).
-            The exact value has little effect at phi < 1 vol-%.
+            phase with effective density ``rho_pigment`` (default
+            2.5 g/cm3).  ``rho_particle`` is accepted as a deprecated
+            keyword alias.
           * carrier IPA and PG go into the liquid phase.
           * any unassigned mass fraction of the paste is treated as
             water (for SL 120 the fractions sum to 1, so none).
+
+        ``rho_paste`` is deliberately not an input here.  It is the bulk
+        density of the complete pigment/IPA/PG paste, whereas
+        ``rho_pigment`` is the material density of the encapsulated solid.
+        Under an ideal additive-volume assumption they are related by
+
+            1/rho_paste = w_pigment/rho_pigment
+                            + w_IPA/rho_IPA + w_PG/rho_PG,
+
+        but the relation is only an estimate because liquid-mixture volume
+        contraction and measurement conditions may affect ``rho_paste``.
 
         For an older PG-free paste (e.g. the Anton Paar trial inks) use
         ipa_fraction=0.80, pg_fraction=0.0.
 
         The standard ink (1 part paste + 10 parts water) is
-        paste = 100/11 = 9.0909 %  ->  1.818 % Al, 3.636 % IPA,
+        paste = 100/11 = 9.0909 %  ->  1.818 % pigment, 3.636 % IPA,
         3.636 % PG, 90.909 % water.
 
-        Returns a dict: {'al', 'ipa', 'pg', 'rho_particle'}.
+        The returned dict uses ``pigment`` and ``rho_pigment`` as canonical
+        keys.  The duplicate keys ``al`` and ``rho_particle`` are retained
+        only for callers of earlier versions; do not sum both sets of keys.
         """
+        rho_pigment = InkCalculator._resolve_rho_pigment(
+            rho_pigment, rho_particle)
         if min(solids_fraction, ipa_fraction, pg_fraction) < 0:
             raise ValueError("Paste fractions must be non-negative.")
         if solids_fraction + ipa_fraction + pg_fraction > 1.0 + 1e-9:
             raise ValueError("Paste fractions must not exceed 1 in total.")
-        if rho_particle <= 0:
-            raise ValueError("rho_particle must be positive.")
 
-        return {"al": paste * solids_fraction,
+        pigment = paste * solids_fraction
+        return {"pigment": pigment,
+                "al": pigment,
                 "ipa": ipa + paste * ipa_fraction,
                 "pg": pg + paste * pg_fraction,
-                "rho_particle": rho_particle}
+                "rho_pigment": rho_pigment,
+                "rho_particle": rho_pigment}
 
     def compute_from_paste(self, paste, ipa=0.0, pg=0.0, temperature=25.0,
                            solids_fraction=0.20,
                            ipa_fraction=0.40, pg_fraction=0.40,
-                           rho_particle=RHO_PIGMENT, mg=0.0):
+                           rho_pigment=RHO_PIGMENT, mg=0.0, *,
+                           rho_particle=None):
         """
-        Compute all four properties for an ink specified via pigment-
-        PASTE dosage (see paste_composition). The effective particle
-        density (encapsulated pigment) is applied consistently to the
-        density, sound and viscosity models for this call. The particle
-        bulk modulus is left at K_Al; at phi < 1 vol-% the resulting
-        error in c is < 0.5 m/s.
+        Compute all four properties from a pigment-paste dosage.
+
+        This is an input adapter, not a separate physical model.  It calls
+        ``paste_composition()`` to expand the paste into encapsulated
+        pigment, IPA and PG and then delegates to ``compute()``.  The
+        effective ``rho_pigment`` is applied consistently to density,
+        sound and viscosity for this call.  ``rho_particle`` is accepted as
+        a deprecated keyword alias.  The pigment bulk modulus remains the
+        configured effective value, currently the aluminum value.
 
         Example (standard ink, 1 part SL 120 + 10 parts water):
             props = ink.compute_from_paste(paste=100.0 / 11.0)
@@ -1780,20 +1910,26 @@ class InkCalculator:
         comp = self.paste_composition(
             paste, ipa=ipa, pg=pg, solids_fraction=solids_fraction,
             ipa_fraction=ipa_fraction, pg_fraction=pg_fraction,
-            rho_particle=rho_particle)
+            rho_pigment=rho_pigment, rho_particle=rho_particle)
 
-        saved = (self.density_calc.DENSITY_ALUMINUM,
+        saved = (self.density_calc.DENSITY_PIGMENT,
+                 self.density_calc.DENSITY_ALUMINUM,
+                 self.sound_calc.DENSITY_PIGMENT,
                  self.sound_calc.DENSITY_ALUMINUM,
                  self.viscosity_model.rho_pigment)
-        self.density_calc.DENSITY_ALUMINUM = comp["rho_particle"]
-        self.sound_calc.DENSITY_ALUMINUM = comp["rho_particle"]
-        self.viscosity_model.rho_pigment = comp["rho_particle"]
+        self.density_calc.DENSITY_PIGMENT = comp["rho_pigment"]
+        self.density_calc.DENSITY_ALUMINUM = comp["rho_pigment"]
+        self.sound_calc.DENSITY_PIGMENT = comp["rho_pigment"]
+        self.sound_calc.DENSITY_ALUMINUM = comp["rho_pigment"]
+        self.viscosity_model.rho_pigment = comp["rho_pigment"]
         try:
             props = self.compute(
-                al=comp["al"], ipa=comp["ipa"], pg=comp["pg"], mg=mg,
+                al=comp["pigment"], ipa=comp["ipa"], pg=comp["pg"], mg=mg,
                 temperature=temperature)
         finally:
-            (self.density_calc.DENSITY_ALUMINUM,
+            (self.density_calc.DENSITY_PIGMENT,
+             self.density_calc.DENSITY_ALUMINUM,
+             self.sound_calc.DENSITY_PIGMENT,
              self.sound_calc.DENSITY_ALUMINUM,
              self.viscosity_model.rho_pigment) = saved
 
@@ -1802,10 +1938,12 @@ class InkCalculator:
             "solids_fraction": solids_fraction,
             "ipa_fraction": ipa_fraction,
             "pg_fraction": pg_fraction,
-            "effective_particle_pct": comp["al"],
+            "encapsulated_pigment_pct": comp["pigment"],
+            "effective_particle_pct": comp["pigment"],  # legacy detail key
             "ipa_from_paste_pct": paste * ipa_fraction,
             "pg_from_paste_pct": paste * pg_fraction,
-            "rho_particle": comp["rho_particle"],
+            "rho_pigment": comp["rho_pigment"],
+            "rho_particle": comp["rho_pigment"],  # legacy detail key
             "mg_pct": mg,
         }
         return props
