@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from ukf_aluminium import (IDX, NC, W_RECIPE, process_step, measurement, UKF, T_MIN, T_MAX)
+from UKF.ukf_aluminium import (IDX, NC, W_RECIPE, process_step, measurement, UKF, T_MIN, T_MAX)
 
 rng = np.random.default_rng(7)
 

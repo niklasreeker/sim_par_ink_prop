@@ -1,0 +1,28 @@
+{
+  "operation": "evaluate",
+  "script_version": "3.0-phase-report",
+  "model_path": "C:\\dev\\masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_3_4_5_6_7_8_9_10__Kennfeld_v2_21__korrigiert__20260910_143355\\calibration_field.json",
+  "model_sha256": "b12269e58827867abdb243b0415ceed5ca3f5a964e3f70490dc9d2a180f17cee",
+  "evaluation_data": [
+    {
+      "path": "C:\\dev\\masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Kennfeld_v2 (21)_korrigiert.csv",
+      "filename": "Kennfeld_v2 (21)_korrigiert.csv",
+      "sha256": "2dbcd41211ae2b7a860ad5ac162bb755f5268f66d7c64533b8711c40eb232a2d",
+      "samples": [
+        11
+      ]
+    }
+  ],
+  "output_directory": "C:\\dev\\masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibrated_model_evaluation\\field_probe_3_4_5_6_7_8_9_10__Kennfeld_v2_21__35eebd9c__data_Kennfeld_v2_21__korrigiert__probe_11__20260910_143546",
+  "quality_mode": "auto",
+  "evaporation_mode": "estimate",
+  "minimum_points_per_phase": 5,
+  "settling_fraction": 0.3,
+  "low_noise_keep_fraction": 0.6,
+  "reference_rows_excluded": 0,
+  "training_overlap_selected_rows": 0,
+  "training_overlap_check_available": true,
+  "legacy_possible_overlap": false,
+  "calculator_path": "C:\\dev\\masterarbeit\\sim_par_ink_prop\\ink_calculator.py",
+  "calculator_sha256": "0b839d39e90669c6d0c33f2516b193e4c0a279dcc7bc8ec69def32ae5e15791f"
+}

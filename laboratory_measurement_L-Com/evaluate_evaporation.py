@@ -1419,8 +1419,8 @@ def main(argv=None):
     interactive = args.csv is None or args.sample is None or (args.phase is None and not args.whole_sample)
     source = args.csv.resolve() if args.csv else select_number(find_measurement_files(args.input_dir), "Messdatei waehlen", lambda p: str(p))
     df = read_measurements(source, args.max_gap_min)
-    samples = [x for x, g in df.groupby("ProbeNr") if x not in [100, 101] and (g.m_SL120 > 0).any()]
-    sample = args.sample if args.sample is not None else select_number(samples, "Probe waehlen (Referenzen 100/101 ausgeschlossen)", lambda v: f"Probe {v:g}")
+    samples = [x for x, g in df.groupby("ProbeNr") if x not in [100, 101, 102] and (g.m_SL120 > 0).any()]
+    sample = args.sample if args.sample is not None else select_number(samples, "Probe waehlen (Referenzen 100/101/102 ausgeschlossen)", lambda v: f"Probe {v:g}")
     if sample not in samples:
         raise ValueError("Probe nicht vorhanden oder keine Tintenprobe.")
     if args.whole_sample and args.phase is not None:

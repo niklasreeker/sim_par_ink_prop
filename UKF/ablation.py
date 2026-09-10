@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from ukf_aluminium import IDX, NC, W_RECIPE, process_step, measurement, UKF
+from UKF.ukf_aluminium import IDX, NC, W_RECIPE, process_step, measurement, UKF
 
 rng = np.random.default_rng(7)
 dt=5.0; T_end=8*3600; steps=int(T_end/dt); t=np.arange(steps)*dt
