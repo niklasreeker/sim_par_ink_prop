@@ -1,18 +1,116 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Skript zur automatischen Korrektur der Kennfeld-Messdaten.
-Fehler: In Versuch 3 (ProbeNr 3) bei SeqNo 132 bis 142 fehlte der Eintrag
-        der PG-Zugabe (24.60 g PG).
-Korrektur: Setzt m_PG in den betroffenen Zeilen auf '   2.460000E+1'.
+"""Automatische, wiederholbar ausführbare Korrektur der Kennfeld-Messdaten.
+
+Enthaltene Datenkorrekturen:
+
+1. Probe 3, SeqNo 132 bis 142: fehlende PG-Zugabe von 24,60 g.
+2. Probe 11 vom 09.09.2026, ab SeqNo 1013: fehlende Wasserzugabe von
+   29,78 g. Da die CSV kumulierte Einwaagen enthält, werden auch alle
+   nachfolgenden Zeilen dieser Probe um 29,78 g erhöht.
+
+Die Erkennung ist idempotent: Bereits korrigierte Dateien werden bei einem
+erneuten Lauf nicht ein zweites Mal verändert.
 """
 
-import os
+import re
 import sys
 from pathlib import Path
 
-TARGET_PG_VAL = "   2.460000E+1"
-SEQ_RANGE = range(132, 143)  # SeqNo 132 bis 142 inklusive
+TARGET_PG = 24.60
+PG_PROBE = 3
+PG_SEQ_RANGE = range(132, 143)  # SeqNo 132 bis 142 inklusive
+
+WATER_PROBE = 11
+WATER_DATE = "2026-09-09"
+WATER_START_SEQ = 1013
+WATER_DELTA = 29.78
+# Der Wert am Beginn des betroffenen Abschnitts dient als eindeutiger Marker,
+# damit die kumulierte Zugabe niemals doppelt addiert wird.
+WATER_ORIGINAL_AT_START = 1000.40
+WATER_CORRECTED_AT_START = WATER_ORIGINAL_AT_START + WATER_DELTA
+
+FLOAT_TOLERANCE = 1e-3
+REQUIRED_COLUMNS = {"SeqNo", "Date", "ProbeNr", "m_PG", "m_Wasser"}
+
+
+def _parse_header(line):
+    """Liefert Spaltenindizes oder None, wenn es kein Kennfeld-Format ist."""
+    columns = [column.strip() for column in line.strip().split(",")]
+    if not REQUIRED_COLUMNS.issubset(columns):
+        return None
+    return {column: columns.index(column) for column in REQUIRED_COLUMNS}
+
+
+def _parse_row(line, columns):
+    """Liest die für die Korrekturen benötigten Werte einer Datenzeile."""
+    parts = line.split(",")
+    if len(parts) <= max(columns.values()):
+        return None
+    try:
+        return {
+            "parts": parts,
+            "seq": int(parts[columns["SeqNo"]].strip()),
+            "date": parts[columns["Date"]].strip(),
+            "probe": int(float(parts[columns["ProbeNr"]].strip())),
+            "m_pg": float(parts[columns["m_PG"]].strip()),
+            "m_wasser": float(parts[columns["m_Wasser"]].strip()),
+        }
+    except ValueError:
+        # Überschrift, //END oder eine unvollständige Zeile
+        return None
+
+
+def _format_plc_float(value):
+    """Formatiert eine Zahl wie die wissenschaftlichen Werte der PLC-CSV."""
+    value_text = f"{value:.6E}"
+    value_text = re.sub(r"E([+-])0+(\d+)$", r"E\1\2", value_text)
+    return value_text.rjust(15)
+
+
+def _analyze(lines, columns):
+    pg_rows = []
+    water_rows = []
+    water_start = None
+
+    for line in lines[1:]:
+        row = _parse_row(line, columns)
+        if row is None:
+            continue
+
+        if row["probe"] == PG_PROBE and row["seq"] in PG_SEQ_RANGE:
+            pg_rows.append(row)
+
+        is_water_campaign = (
+            row["probe"] == WATER_PROBE
+            and row["date"] == WATER_DATE
+            and row["seq"] >= WATER_START_SEQ
+        )
+        if is_water_campaign:
+            water_rows.append(row)
+            if row["seq"] == WATER_START_SEQ:
+                water_start = row["m_wasser"]
+
+    pg_needs = sum(
+        abs(row["m_pg"] - TARGET_PG) >= FLOAT_TOLERANCE for row in pg_rows
+    )
+
+    if water_start is None:
+        water_state = "not_applicable"
+    elif abs(water_start - WATER_ORIGINAL_AT_START) < FLOAT_TOLERANCE:
+        water_state = "needs_correction"
+    elif abs(water_start - WATER_CORRECTED_AT_START) < FLOAT_TOLERANCE:
+        water_state = "already_corrected"
+    else:
+        water_state = "unknown"
+
+    return {
+        "pg_rows": pg_rows,
+        "pg_needs": pg_needs,
+        "water_rows": water_rows,
+        "water_start": water_start,
+        "water_state": water_state,
+    }
 
 
 def check_file_status(file_path):
@@ -30,42 +128,37 @@ def check_file_status(file_path):
     if not lines:
         return "not_applicable", "Datei ist leer"
 
-    header = lines[0].strip().split(",")
-    if len(header) < 9 or "SeqNo" not in header[0] or "m_PG" not in header[8]:
+    columns = _parse_header(lines[0])
+    if columns is None:
         return "not_applicable", "Kein passendes Kennfeld-CSV-Format"
 
-    found_seqs = []
-    already_fixed_count = 0
-    needs_fix_count = 0
+    analysis = _analyze(lines, columns)
+    applicable = bool(analysis["pg_rows"] or analysis["water_rows"])
+    if not applicable:
+        return "not_applicable", "Keine bekannte Korrekturstelle vorhanden"
 
-    for line in lines[1:]:
-        parts = line.split(",")
-        if len(parts) >= 9:
-            seq_str = parts[0].strip()
-            if seq_str.isdigit():
-                seq_num = int(seq_str)
-                if seq_num in SEQ_RANGE:
-                    found_seqs.append(seq_num)
-                    m_pg_val = parts[8].strip()
-                    try:
-                        val_float = float(m_pg_val)
-                        if abs(val_float - 24.60) < 1e-3:
-                            already_fixed_count += 1
-                        elif abs(val_float - 0.0) < 1e-3:
-                            needs_fix_count += 1
-                    except ValueError:
-                        pass
+    details = []
+    if analysis["pg_rows"]:
+        details.append(
+            f"PG: {analysis['pg_needs']} von {len(analysis['pg_rows'])} Zeilen offen"
+        )
+    if analysis["water_state"] == "needs_correction":
+        details.append(
+            f"Wasser: {len(analysis['water_rows'])} Zeilen um 29,78 g erhöhen"
+        )
+    elif analysis["water_state"] == "already_corrected":
+        details.append("Wasser: bereits korrigiert")
+    elif analysis["water_state"] == "unknown":
+        details.append(
+            "Wasser: unerwarteter Startwert "
+            f"{analysis['water_start']:.6f} g; keine automatische Änderung"
+        )
 
-    if not found_seqs:
-        return "not_applicable", "Zeilen für SeqNo 132–142 nicht vorhanden"
-
-    if already_fixed_count == len(SEQ_RANGE):
-        return "already_corrected", "Bereits korrigiert (m_PG = 24.6g)"
-
-    if needs_fix_count > 0:
-        return "needs_correction", f"{needs_fix_count} Zeilen müssen korrigiert werden"
-
-    return "unknown", "Unklarer Status"
+    if analysis["pg_needs"] or analysis["water_state"] == "needs_correction":
+        return "needs_correction", "; ".join(details)
+    if analysis["water_state"] == "unknown":
+        return "unknown", "; ".join(details)
+    return "already_corrected", "; ".join(details)
 
 
 def correct_file(input_path, output_path=None):
@@ -86,21 +179,39 @@ def correct_file(input_path, output_path=None):
     with open(input_p, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
-    corrected_lines = []
+    if not lines:
+        raise ValueError("Datei ist leer")
+    columns = _parse_header(lines[0])
+    if columns is None:
+        raise ValueError("Kein passendes Kennfeld-CSV-Format")
+
+    analysis = _analyze(lines, columns)
+    correct_water = analysis["water_state"] == "needs_correction"
+
+    corrected_lines = [lines[0]]
     change_count = 0
 
-    for line in lines:
-        parts = line.split(",")
-        if len(parts) >= 9:
-            seq_str = parts[0].strip()
-            probe_str = parts[4].strip() if len(parts) > 4 else ""
-            if seq_str.isdigit():
-                seq_num = int(seq_str)
-                # Betrifft SeqNo 132 bis 142 (ProbeNr 3)
-                if seq_num in SEQ_RANGE and (probe_str == "3" or probe_str == "3.0" or not probe_str):
-                    parts[8] = TARGET_PG_VAL
-                    line = ",".join(parts)
-                    change_count += 1
+    for line in lines[1:]:
+        row = _parse_row(line, columns)
+        if row is not None:
+            parts = row["parts"]
+
+            if (row["probe"] == PG_PROBE
+                    and row["seq"] in PG_SEQ_RANGE
+                    and abs(row["m_pg"] - TARGET_PG) >= FLOAT_TOLERANCE):
+                parts[columns["m_PG"]] = _format_plc_float(TARGET_PG)
+                change_count += 1
+
+            if (correct_water
+                    and row["probe"] == WATER_PROBE
+                    and row["date"] == WATER_DATE
+                    and row["seq"] >= WATER_START_SEQ):
+                parts[columns["m_Wasser"]] = _format_plc_float(
+                    row["m_wasser"] + WATER_DELTA
+                )
+                change_count += 1
+
+            line = ",".join(parts)
         corrected_lines.append(line)
 
     with open(output_p, "w", encoding="utf-8") as f:
@@ -119,7 +230,7 @@ def list_csv_files(folder_path):
 def main():
     script_dir = Path(__file__).resolve().parent
     print("=" * 70)
-    print("   KENNFELD-CSV KORREKTUR-SKRIPT (PG-Zugabe 24,60 g)")
+    print("   KENNFELD-CSV KORREKTUR-SKRIPT")
     print("=" * 70)
     print(f"Arbeitsverzeichnis: {script_dir}")
     print()

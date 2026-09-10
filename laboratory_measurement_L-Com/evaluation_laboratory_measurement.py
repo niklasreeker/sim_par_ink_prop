@@ -441,7 +441,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     if has_plotted:
         ax.legend(fontsize=8, ncol=4, loc="upper left", framealpha=0.9)
     else:
-        ax.text(0.5, 0.5, "No active components â€“ pure water",
+        ax.text(0.5, 0.5, "No active components \u2013 pure water",
                 transform=ax.transAxes, ha="center", va="center", color="#777")
     ax.set_ylabel("Composition\n[wt.-%]")
     ax.grid(alpha=0.35, lw=0.6, color=COLORS["grid"])
@@ -459,7 +459,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     _plot_channel(axes[1], x, sample_df["Rho_M"].to_numpy(float),
                   sample_df["Rho_S"].to_numpy(float) if "Rho_S" in sample_df else None,
                   sample_df["Rho_Sp"].to_numpy(float) if "Rho_Sp" in sample_df else None,
-                  COLORS["rho"], "Density\n[kg/mÂ³]")
+                  COLORS["rho"], "Density\n[kg/m\u00b3]")
     _mark_changes(axes[1], changes)
 
     _plot_channel(axes[2], x, sample_df["C_M"].to_numpy(float),
@@ -471,7 +471,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     # ---------- Panel 4: Temperature ----------
     _plot_channel(axes[3], x, sample_df["T_M"].to_numpy(float),
                   sample_df["T_S"].to_numpy(float) if "T_S" in sample_df else None,
-                  None, COLORS["T"], "Temperature\n[Â°C]")
+                  None, COLORS["T"], "Temperature\n[\u00b0C]")
     _mark_changes(axes[3], changes)
     axes[3].set_xlabel("Elapsed time since sample start [min]")
 
@@ -480,9 +480,9 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
         Line2D([], [], color="#444", lw=1.6, marker="o", ms=4,
                label="Mean value over 100 measurements"),
         Line2D([], [], color="#444", lw=8, alpha=0.28,
-               label="5% â€“ 95% interval of single readings (Â±1.645Â·Ïƒ)"),
+               label="5% \u2013 95% interval of single readings (\u00b11.645\u00b7\u03c3)"),
         Line2D([], [], color="#444", lw=8, alpha=0.12,
-               label="Span (Min â€“ Max) within window"),
+               label="Span (Min \u2013 Max) within window"),
         Line2D([], [], color=COLORS["mark"], ls="--", lw=1.0,
                label="Recipe / formulation change"),
     ]
@@ -491,15 +491,15 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
 
     # ---------- Title ----------
     first_row = sample_df.iloc[0]
-    header = (f"Sample {int(probe)}   Â·   Start: "
+    header = (f"Sample {int(probe)}   \u00b7   Start: "
               f"{first_row['w_Al']:.3f}% Al / {first_row['w_IPA']:.3f}% IPA / "
-              f"{first_row['w_PG']:.3f}% PG / {first_row['w_MG']:.3f}% MG   Â·   "
+              f"{first_row['w_PG']:.3f}% PG / {first_row['w_MG']:.3f}% MG   \u00b7   "
               f"Water balance {first_row['w_H2O']:.2f}%")
     if pd.notna(first_row.get("Timestamp", pd.NaT)):
-        header += f"\nStart {first_row['Timestamp']:%Y-%m-%d %H:%M} (UTC)   Â·   "
+        header += f"\nStart {first_row['Timestamp']:%Y-%m-%d %H:%M} (UTC)   \u00b7   "
     else:
         header += "\n"
-    header += (f"{len(sample_df)} records   Â·   "
+    header += (f"{len(sample_df)} records   \u00b7   "
                f"{int(sample_df['Recipe_Changed'].sum())} recipe change(s)")
     fig.suptitle(header, fontsize=11, y=0.995)
 
