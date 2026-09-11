@@ -1,9 +1,0 @@
-experiment_key,mode,rate_g_h,objective,objective_at_zero,relative_improvement_pct,boundary_warning
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=3,estimate,1.4816171040823802,14.213530387083035,166.70705477358533,91.47394787437923,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=4,estimate,1.31943005053332,51.49937995028136,300.97350893510594,82.8890655086241,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=5,estimate,0.7619917457061319,90.51556448034643,420.00433012599586,78.44889731179843,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=7,estimate,2.6836923238456385,4.343263492244957,12.712729803736107,65.83531972048577,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=6,estimate,1.5178038444322266,4.66448639740552,102.22408566004626,95.43699866104195,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=8,estimate,1.7471200328128913,85.84470925635404,211.5178323809874,59.414906870958305,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=9,estimate,0.6843436003640443,39.99344317620043,205.13634940902628,80.50397050965523,False
-C:\dev\masterarbeit\sim_par_ink_prop\laboratory_measurement_L-Com\measurement_data\Kennfeld_v2 (21)_korrigiert.csv|Probe=10,estimate,0.6754327197809971,14.858212975254704,261.41906861948456,94.31632395688703,False

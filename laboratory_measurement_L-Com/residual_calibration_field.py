@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and use a first residual calibration field for the ink model.
+"""Build and use an evaporation-corrected residual calibration field.
 
 The hybrid measurement model is
 
@@ -9,21 +9,31 @@ with separate residual fields for density and sound velocity.  Evaporation is
 not learned as part of A(w).  Instead, the script reconstructs the effective
 composition at every timestamp before calculating the residual.
 
-Current evaporation assumption
-------------------------------
-Only IPA evaporates.  For a cumulative IPA loss E(t),
+Current evaporation model
+-------------------------
+The independently evaluated mass loss is split into 34 wt-% water and
+66 wt-% IPA.  For cumulative losses E_IPA(t) and E_Water(t),
 
-    m_IPA,eff(t) = m_IPA,nominal(t) - E(t)
-    m_total,eff(t) = m_total,nominal(t) - E(t)
+    m_IPA,eff(t)   = m_IPA,nominal(t)   - E_IPA(t)
+    m_Water,eff(t) = m_Water,nominal(t) - E_Water(t)
+    m_total,eff(t) = m_total,nominal(t) - E_IPA(t) - E_Water(t)
 
 and all mass percentages, including methyl gallate (MG), are recalculated.
 SL120 is interpreted as 20 wt-% Al, 40 wt-% IPA and 40 wt-% PG. MG is read
 from the ``m_MG`` column and is assumed not to evaporate.
 
-The evaporation rate can be supplied from an independent gravimetric test or
-estimated from within-phase changes of density and sound velocity.  During
-rate estimation, each recipe phase receives a free residual intercept.  This
-prevents a static model offset from being mistaken for evaporation.
+Evaporation starts when the ink is first stirred, not at the first measurement.
+The total rate is obtained from a documented, piecewise-constant RPM history.
+It uses the gravimetric anchors 1.82 g/h at low circulation, 1.89 g/h at
+400 rpm and 2.72 g/h at 600 rpm, with linear interpolation between anchors.
+Undocumented periods use the independently determined robust mixed-condition
+rate of 2.281 g/h and remain explicitly labelled as such in every output.
+
+The built-in protocol contains the laboratory notes for samples 3--11 and
+both days of sample 102.  Future or corrected protocols can be provided as a
+JSON file via ``--evaporation-protocol``; entries with the same sample/date
+replace the built-in entry.  Missing protocols fail loudly so a field cannot
+silently be built without pre-measurement evaporation.
 
 The saved JSON file is portable and contains the residual nodes, IDW settings,
 quality information, evaporation settings and fingerprints of the calculator
@@ -32,17 +42,17 @@ subcommands or by another Python project.
 
 Examples
 --------
-Build a field from sample 3 and estimate the IPA loss rate::
+Build a field from the documented samples::
 
     python residual_calibration_field.py build \
-      --input "measurement_data/Kennfeld_v2 (10) korrigiert.csv" \
-      --samples 3 --evaporation-mode estimate
+      --input "measurement_data/Kennfeld_v2 (21)_korrigiert.csv" \
+      --samples 3 4 5 6 7 8 9 10 11 102
 
-Build with a gravimetrically determined loss rate::
+Build with an updated external protocol::
 
     python residual_calibration_field.py build \
-      --input measurements.csv --samples 3 \
-      --evaporation-mode fixed --evaporation-rate-g-h 1.50
+      --input measurements.csv --samples 9 10 11 \
+      --evaporation-protocol evaporation_protocol.json
 
 Predict one point::
 
@@ -54,8 +64,7 @@ Evaluate a saved field against another CSV::
 
     python residual_calibration_field.py evaluate \
       --model results/residual_calibration/calibration_field.json \
-      --input new_measurements.csv --samples all \
-      --evaporation-mode fixed --evaporation-rate-g-h 1.50
+      --input new_measurements.csv --samples 9 10 11
 
 The signed calibration residual always uses ``measurement - physics`` so it
 can be added directly to the InkCalculator result.
@@ -85,6 +94,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import matplotlib
 
@@ -92,12 +102,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize_scalar
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
-SCRIPT_VERSION = "3.0-phase-report"
+SCRIPT_VERSION = "4.0-water-ipa-evaporation"
 DEFAULT_INPUT = SCRIPT_DIR / "measurement_data"
 CALIBRATION_ROOT = SCRIPT_DIR / "results" / "calibration_field"
 EVALUATION_ROOT = SCRIPT_DIR / "results" / "calibrated_model_evaluation"
@@ -105,6 +114,142 @@ DEFAULT_TABLES = REPO_DIR / "tables_parameters"
 DEFAULT_CALCULATOR = REPO_DIR / "ink_calculator.py"
 
 SL120 = {"Al": 0.20, "IPA": 0.40, "PG": 0.40}
+LOCAL_TIMEZONE = "Europe/Berlin"
+IPA_EVAPORATION_SHARE = 0.66
+WATER_EVAPORATION_SHARE = 0.34
+UNDOCUMENTED_TOTAL_RATE_G_H = 2.281
+RPM_RATE_ANCHORS = (
+    (0.0, 1.82),
+    (180.0, 1.82),
+    (400.0, 1.89),
+    (600.0, 2.72),
+)
+
+# Times are local laboratory time (Europe/Berlin).  Each change remains active
+# until the next change.  A ``total_rate_g_h`` entry is used only where the RPM
+# was not documented.  These entries are deliberately kept in the script so a
+# single returned file is reproducible; --evaporation-protocol can override or
+# extend them without changing source code.
+BUILTIN_EVAPORATION_PROTOCOL: dict[str, Any] = {
+    "timezone": LOCAL_TIMEZONE,
+    "experiments": [
+        {
+            "probe": 3,
+            "date": "2026-08-21",
+            "stirring_start": "10:50",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "note": "45 min pre-stirring; RPM not documented",
+        },
+        {
+            "probe": 4,
+            "date": "2026-08-27",
+            "stirring_start": "09:11",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "note": "60 min stirring plus 10 min pumping; RPM not documented",
+        },
+        {
+            "probe": 5,
+            "date": "2026-08-28",
+            "stirring_start": "11:22",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "schedule": [{"time": "12:54", "rpm": 374}],
+            "note": "45 min stirring plus 4 min pumping; later 374 rpm",
+        },
+        {
+            "probe": 6,
+            "date": "2026-09-01",
+            "stirring_start": "12:58",
+            "default_rpm": 400,
+            "schedule": [
+                {"time": "12:58", "rpm": 600},
+                {"time": "14:08", "rpm": 400},
+            ],
+            "note": "70 min at 600 rpm, measurement at 400 rpm",
+        },
+        {
+            "probe": 7,
+            "date": "2026-09-01",
+            "stirring_start": "12:44",
+            "default_rpm": 400,
+            "schedule": [
+                {"time": "12:44", "rpm": 500},
+                {"time": "13:54", "rpm": 400},
+            ],
+            "note": "70 min at 500 rpm, measurement at 400 rpm",
+        },
+        {
+            "probe": 8,
+            "date": "2026-09-02",
+            "stirring_start": "10:41",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "schedule": [
+                {"time": "10:41", "rpm": 600},
+                {"time": "11:51", "total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H},
+            ],
+            "note": "70 min at 600 rpm; later RPM not documented",
+        },
+        {
+            "probe": 9,
+            "date": "2026-09-07",
+            "stirring_start": "09:30",
+            "default_rpm": 181,
+            "schedule": [
+                {"time": "09:30", "rpm": 600},
+                {"time": "11:00", "rpm": 138},
+                {"time": "11:41", "rpm": 500},
+                {"time": "11:47", "rpm": 181},
+                {"time": "13:13", "rpm": 580},
+                {"time": "14:22", "rpm": 181},
+            ],
+            "note": "RPM changes reconstructed from the laboratory diary",
+        },
+        {
+            "probe": 10,
+            "date": "2026-09-08",
+            "stirring_start": "09:00",
+            "default_rpm": 180,
+            "schedule": [
+                {"time": "09:00", "rpm": 600},
+                {"time": "10:20", "rpm": 180},
+                {"time": "10:48", "rpm": 500},
+                {"time": "10:55", "rpm": 170},
+                {"time": "11:49", "rpm": 180},
+                {"time": "12:18", "rpm": 170},
+                {"time": "12:57", "rpm": 600},
+                {"time": "14:13", "rpm": 170},
+                {"time": "14:45", "rpm": 180},
+            ],
+            "note": "RPM changes reconstructed from the laboratory diary",
+        },
+        {
+            "probe": 11,
+            "date": "2026-09-09",
+            "stirring_start": "09:05",
+            "default_rpm": 180,
+            "schedule": [
+                {"time": "09:05", "rpm": 600},
+                {"time": "10:18", "rpm": 180},
+                {"time": "12:18", "rpm": 550},
+                {"time": "13:30", "rpm": 180},
+            ],
+            "note": "RPM changes reconstructed from the laboratory diary",
+        },
+        {
+            "probe": 102,
+            "date": "2026-09-01",
+            "stirring_start": "10:36",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "note": "60 min pre-stirring; RPM not documented",
+        },
+        {
+            "probe": 102,
+            "date": "2026-09-02",
+            "stirring_start": "10:44",
+            "default_rpm": 400,
+            "note": "45 min pre-stirring at 400 rpm",
+        },
+    ],
+}
 MASS_COLUMNS = ["m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"]
 MEASUREMENT_COLUMNS = ["Rho_M", "C_M", "T_M"]
 COMPOSITION_COLUMNS = [
@@ -191,37 +336,14 @@ def add_input_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_evaporation_arguments(
-    parser: argparse.ArgumentParser, default_mode: str = "estimate"
-) -> None:
+def add_evaporation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--evaporation-mode",
-        choices=["estimate", "fixed", "none"],
-        default=default_mode,
-        help="Estimate the IPA loss rate, use a fixed rate, or disable evaporation.",
-    )
-    parser.add_argument(
-        "--evaporation-rate-g-h",
-        type=non_negative_float,
-        default=1.50,
-        help="Fixed rate or prior centre for estimation (default: 1.50 g/h).",
-    )
-    parser.add_argument(
-        "--evaporation-rate-max-g-h",
-        type=positive_float,
-        default=5.0,
-        help="Upper bound for data-driven rate estimation (default: 5 g/h).",
-    )
-    parser.add_argument(
-        "--evaporation-prior-sigma-g-h",
-        type=positive_float,
-        default=0.50,
-        help="Prior uncertainty around --evaporation-rate-g-h (default: 0.50 g/h).",
-    )
-    parser.add_argument(
-        "--no-evaporation-prior",
-        action="store_true",
-        help="Estimate only from measurement drift, without the 1.5 g/h prior.",
+        "--evaporation-protocol",
+        type=Path,
+        help=(
+            "Optional JSON protocol. Entries are keyed by probe/date and replace "
+            "the built-in laboratory diary entries."
+        ),
     )
 
 
@@ -234,7 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
     build = subparsers.add_parser("build", help="Build and save a calibration field.")
     add_input_arguments(build)
     add_common_calculator_arguments(build)
-    add_evaporation_arguments(build, default_mode="estimate")
+    add_evaporation_arguments(build)
     build.add_argument(
         "--quality-mode",
         choices=["auto", "flags", "low-noise", "all"],
@@ -295,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--model", type=Path, required=True)
     add_input_arguments(evaluate)
     add_common_calculator_arguments(evaluate)
-    add_evaporation_arguments(evaluate, default_mode="fixed")
+    add_evaporation_arguments(evaluate)
     evaluate.add_argument("--quality-mode", choices=["auto", "flags", "low-noise", "all"],
                           default="auto", help="Phase summary selection (default: auto).")
     evaluate.add_argument("--minimum-points-per-phase", type=int, default=5)
@@ -374,6 +496,13 @@ def add_timestamps_and_phases(
         bad = int(result["Measurement_Time_UTC"].isna().sum())
         raise ValueError(f"Could not parse {bad} measurement timestamps.")
 
+    result["Measurement_Time_Local"] = result["Measurement_Time_UTC"].dt.tz_convert(
+        LOCAL_TIMEZONE
+    )
+    result["Experiment_Date_Local"] = result["Measurement_Time_Local"].dt.strftime(
+        "%Y-%m-%d"
+    )
+
     for column in MASS_COLUMNS + MEASUREMENT_COLUMNS:
         if column in result.columns:
             result[column] = pd.to_numeric(result[column], errors="coerce")
@@ -382,6 +511,8 @@ def add_timestamps_and_phases(
         result["Source_Path"].astype(str)
         + "|Probe="
         + result["ProbeNr"].astype(str)
+        + "|Date="
+        + result["Experiment_Date_Local"]
     )
     result["Phase"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
     result["Experiment_Elapsed_h"] = np.nan
@@ -437,33 +568,326 @@ def add_nominal_component_masses(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def apply_ipa_evaporation(
-    df: pd.DataFrame, rates_by_experiment: dict[str, float]
-) -> pd.DataFrame:
-    result = df.copy()
-    rates = result["Experiment_Key"].map(rates_by_experiment)
-    if rates.isna().any():
-        missing = sorted(result.loc[rates.isna(), "Experiment_Key"].unique())
-        raise ValueError(f"Missing evaporation rates for: {missing}")
+def total_evaporation_rate_from_rpm(rpm: float) -> float:
+    """Piecewise-linear total mass-loss rate from gravimetric RPM anchors."""
+    value = float(rpm)
+    if not np.isfinite(value) or value < 0:
+        raise ValueError(f"RPM must be finite and non-negative, got {rpm!r}.")
+    anchor_rpm = np.asarray([item[0] for item in RPM_RATE_ANCHORS], dtype=float)
+    anchor_rate = np.asarray([item[1] for item in RPM_RATE_ANCHORS], dtype=float)
+    return float(np.interp(value, anchor_rpm, anchor_rate))
 
-    result["IPA_Evaporation_Rate_g_h"] = rates.astype(float)
-    result["IPA_Loss_g"] = rates * result["Experiment_Elapsed_h"]
-    available = result["m_IPA_nom_g"]
-    if (result["IPA_Loss_g"] > available).any():
-        row = result.loc[result["IPA_Loss_g"] > available].iloc[0]
+
+def _local_timestamp(date_text: str, time_text: str, timezone_name: str) -> pd.Timestamp:
+    try:
+        naive = pd.Timestamp(f"{date_text} {time_text}")
+        return naive.tz_localize(ZoneInfo(timezone_name)).tz_convert("UTC")
+    except (TypeError, ValueError) as exc:
         raise ValueError(
-            "Estimated IPA loss reaches the available IPA mass at "
+            f"Invalid local protocol timestamp: {date_text} {time_text} "
+            f"({timezone_name})."
+        ) from exc
+
+
+def _rate_setting(entry: dict[str, Any], context: str) -> dict[str, Any]:
+    has_rpm = entry.get("rpm") is not None
+    has_rate = entry.get("total_rate_g_h") is not None
+    if has_rpm == has_rate:
+        raise ValueError(
+            f"{context} must contain exactly one of 'rpm' or 'total_rate_g_h'."
+        )
+    if has_rpm:
+        rpm = float(entry["rpm"])
+        return {
+            "rpm": rpm,
+            "rate_g_h": total_evaporation_rate_from_rpm(rpm),
+            "basis": "documented_rpm",
+        }
+    rate = float(entry["total_rate_g_h"])
+    if not np.isfinite(rate) or rate < 0:
+        raise ValueError(f"{context} contains an invalid total_rate_g_h.")
+    return {"rpm": None, "rate_g_h": rate, "basis": "undocumented_rpm_rate"}
+
+
+def _normalise_protocol_entry(
+    entry: dict[str, Any], timezone_name: str, source: str
+) -> dict[str, Any]:
+    try:
+        probe = int(entry["probe"])
+        date_text = str(entry["date"])
+        stirring_start = str(entry["stirring_start"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "Each evaporation experiment needs probe, date and stirring_start."
+        ) from exc
+    datetime.strptime(date_text, "%Y-%m-%d")
+    start_utc = _local_timestamp(date_text, stirring_start, timezone_name)
+
+    default_entry = {
+        "rpm": entry.get("default_rpm"),
+        "total_rate_g_h": entry.get("default_total_rate_g_h"),
+    }
+    default_setting = _rate_setting(
+        default_entry, f"Default evaporation setting for probe {probe} on {date_text}"
+    )
+
+    changes: list[dict[str, Any]] = []
+    for number, raw_change in enumerate(entry.get("schedule", []), start=1):
+        if not isinstance(raw_change, dict) or "time" not in raw_change:
+            raise ValueError(
+                f"Schedule item {number} for probe {probe} on {date_text} needs a time."
+            )
+        setting = _rate_setting(
+            raw_change, f"Schedule item {number} for probe {probe} on {date_text}"
+        )
+        change_time = _local_timestamp(
+            date_text, str(raw_change["time"]), timezone_name
+        )
+        if change_time < start_utc:
+            raise ValueError(
+                f"Schedule item {number} precedes stirring_start for probe {probe} "
+                f"on {date_text}."
+            )
+        changes.append({"time_utc": change_time, **setting})
+    changes.sort(key=lambda item: item["time_utc"])
+    if len({item["time_utc"] for item in changes}) != len(changes):
+        raise ValueError(f"Duplicate schedule times for probe {probe} on {date_text}.")
+    return {
+        "probe": probe,
+        "date": date_text,
+        "stirring_start_utc": start_utc,
+        "default": default_setting,
+        "changes": changes,
+        "note": str(entry.get("note", "")),
+        "source": source,
+        "raw": entry,
+    }
+
+
+def load_evaporation_protocol(
+    path: Path | None,
+) -> tuple[dict[tuple[int, str], dict[str, Any]], dict[str, Any]]:
+    """Load built-in diary entries and optionally replace/add external entries."""
+    timezone_name = str(BUILTIN_EVAPORATION_PROTOCOL["timezone"])
+    merged: dict[tuple[int, str], dict[str, Any]] = {}
+    for raw_entry in BUILTIN_EVAPORATION_PROTOCOL["experiments"]:
+        entry = _normalise_protocol_entry(
+            raw_entry, timezone_name, "built-in laboratory diary"
+        )
+        merged[(entry["probe"], entry["date"])] = entry
+
+    external_path: Path | None = None
+    external_hash: str | None = None
+    if path is not None:
+        external_path = path.expanduser().resolve()
+        if not external_path.is_file():
+            raise FileNotFoundError(f"Evaporation protocol not found: {external_path}")
+        with external_path.open("r", encoding="utf-8") as handle:
+            external = json.load(handle)
+        external_timezone = str(external.get("timezone", timezone_name))
+        if external_timezone != timezone_name:
+            raise ValueError(
+                f"The evaporation protocol timezone must be {timezone_name!r}; "
+                f"got {external_timezone!r}."
+            )
+        experiments = external.get("experiments")
+        if not isinstance(experiments, list) or not experiments:
+            raise ValueError("The evaporation protocol needs a non-empty experiments list.")
+        for raw_entry in experiments:
+            if not isinstance(raw_entry, dict):
+                raise ValueError("Every evaporation protocol entry must be a JSON object.")
+            entry = _normalise_protocol_entry(
+                raw_entry, timezone_name, f"external protocol: {external_path}"
+            )
+            merged[(entry["probe"], entry["date"])] = entry
+        external_hash = sha256_file(external_path)
+
+    manifest = {
+        "timezone": timezone_name,
+        "ipa_mass_fraction": IPA_EVAPORATION_SHARE,
+        "water_mass_fraction": WATER_EVAPORATION_SHARE,
+        "rpm_rate_anchors": [
+            {"rpm": rpm, "total_rate_g_h": rate}
+            for rpm, rate in RPM_RATE_ANCHORS
+        ],
+        "undocumented_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+        "external_path": str(external_path) if external_path else None,
+        "external_sha256": external_hash,
+        "experiments": [entry["raw"] for entry in merged.values()],
+    }
+    return merged, manifest
+
+
+def _integrate_evaporation(
+    profile: dict[str, Any], target_utc: pd.Timestamp
+) -> dict[str, float | str | None]:
+    start = profile["stirring_start_utc"]
+    if target_utc < start:
+        raise ValueError(
+            f"Measurement at {target_utc} precedes stirring_start {start} for "
+            f"probe {profile['probe']} on {profile['date']}."
+        )
+    setting = profile["default"]
+    cursor = start
+    loss = 0.0
+    documented_h = 0.0
+    rpm_time = 0.0
+    for change in profile["changes"]:
+        change_time = change["time_utc"]
+        if change_time > target_utc:
+            break
+        duration_h = (change_time - cursor).total_seconds() / 3600.0
+        loss += duration_h * setting["rate_g_h"]
+        if setting["rpm"] is not None:
+            documented_h += duration_h
+            rpm_time += duration_h * setting["rpm"]
+        setting = change
+        cursor = change_time
+    duration_h = (target_utc - cursor).total_seconds() / 3600.0
+    loss += duration_h * setting["rate_g_h"]
+    if setting["rpm"] is not None:
+        documented_h += duration_h
+        rpm_time += duration_h * setting["rpm"]
+    elapsed_h = (target_utc - start).total_seconds() / 3600.0
+    return {
+        "total_loss_g": loss,
+        "elapsed_h": elapsed_h,
+        "current_rate_g_h": float(setting["rate_g_h"]),
+        "current_rpm": float(setting["rpm"]) if setting["rpm"] is not None else None,
+        "current_basis": str(setting["basis"]),
+        "rpm_documented_fraction": documented_h / elapsed_h if elapsed_h > 0 else 0.0,
+        "mean_documented_rpm": rpm_time / documented_h if documented_h > 0 else None,
+    }
+
+
+@dataclass
+class EvaporationSummary:
+    experiment_key: str
+    probe: int
+    experiment_date_local: str
+    profile_source: str
+    protocol_note: str
+    stirring_start_utc: str
+    first_measurement_utc: str
+    last_measurement_utc: str
+    pre_measurement_evaporation_h: float
+    total_loss_at_first_g: float
+    total_loss_at_last_g: float
+    ipa_loss_at_last_g: float
+    water_loss_at_last_g: float
+    mean_total_rate_to_last_g_h: float
+    rpm_documented_fraction_to_last: float
+
+
+def apply_evaporation(
+    df: pd.DataFrame, protocols: dict[tuple[int, str], dict[str, Any]]
+) -> tuple[pd.DataFrame, list[EvaporationSummary]]:
+    """Apply pre-measurement and in-run IPA/water evaporation row by row."""
+    result = df.copy()
+    output_columns = {
+        "Evaporation_Profile_Source": "",
+        "Evaporation_Protocol_Note": "",
+        "Stirring_Start_UTC": "",
+        "Evaporation_Elapsed_h": np.nan,
+        "Pre_Measurement_Evaporation_h": np.nan,
+        "Evaporation_Total_Rate_Current_g_h": np.nan,
+        "Stirring_RPM_Current": np.nan,
+        "Evaporation_Rate_Basis_Current": "",
+        "RPM_Documented_Fraction": np.nan,
+        "Mean_Documented_RPM": np.nan,
+        "Total_Evaporation_Loss_g": np.nan,
+    }
+    for column, default in output_columns.items():
+        result[column] = default
+
+    summaries: list[EvaporationSummary] = []
+    missing_profiles: list[str] = []
+    for key, indexes in result.groupby("Experiment_Key", sort=False).groups.items():
+        part = result.loc[indexes].sort_values("Measurement_Time_UTC")
+        probe = int(part["ProbeNr"].iloc[0])
+        date_text = str(part["Experiment_Date_Local"].iloc[0])
+        profile = protocols.get((probe, date_text))
+        if profile is None:
+            missing_profiles.append(f"Probe {probe} on {date_text}")
+            continue
+        first_time = part["Measurement_Time_UTC"].iloc[0]
+        pre_h = (first_time - profile["stirring_start_utc"]).total_seconds() / 3600.0
+        for index, row in part.iterrows():
+            integrated = _integrate_evaporation(profile, row["Measurement_Time_UTC"])
+            values = {
+                "Evaporation_Profile_Source": profile["source"],
+                "Evaporation_Protocol_Note": profile["note"],
+                "Stirring_Start_UTC": str(profile["stirring_start_utc"]),
+                "Evaporation_Elapsed_h": integrated["elapsed_h"],
+                "Pre_Measurement_Evaporation_h": pre_h,
+                "Evaporation_Total_Rate_Current_g_h": integrated["current_rate_g_h"],
+                "Stirring_RPM_Current": integrated["current_rpm"],
+                "Evaporation_Rate_Basis_Current": integrated["current_basis"],
+                "RPM_Documented_Fraction": integrated["rpm_documented_fraction"],
+                "Mean_Documented_RPM": integrated["mean_documented_rpm"],
+                "Total_Evaporation_Loss_g": integrated["total_loss_g"],
+            }
+            for column, value in values.items():
+                result.at[index, column] = value
+        first = result.loc[part.index[0]]
+        last = result.loc[part.index[-1]]
+        elapsed_last = float(last["Evaporation_Elapsed_h"])
+        total_last = float(last["Total_Evaporation_Loss_g"])
+        summaries.append(
+            EvaporationSummary(
+                experiment_key=str(key),
+                probe=probe,
+                experiment_date_local=date_text,
+                profile_source=profile["source"],
+                protocol_note=profile["note"],
+                stirring_start_utc=str(profile["stirring_start_utc"]),
+                first_measurement_utc=str(part["Measurement_Time_UTC"].iloc[0]),
+                last_measurement_utc=str(part["Measurement_Time_UTC"].iloc[-1]),
+                pre_measurement_evaporation_h=pre_h,
+                total_loss_at_first_g=float(first["Total_Evaporation_Loss_g"]),
+                total_loss_at_last_g=total_last,
+                ipa_loss_at_last_g=IPA_EVAPORATION_SHARE * total_last,
+                water_loss_at_last_g=WATER_EVAPORATION_SHARE * total_last,
+                mean_total_rate_to_last_g_h=(
+                    total_last / elapsed_last if elapsed_last > 0 else np.nan
+                ),
+                rpm_documented_fraction_to_last=float(last["RPM_Documented_Fraction"]),
+            )
+        )
+    if missing_profiles:
+        details = ", ".join(sorted(set(missing_profiles)))
+        raise ValueError(
+            "Missing evaporation protocol for "
+            f"{details}. Add a built-in entry or pass --evaporation-protocol."
+        )
+
+    result["IPA_Loss_g"] = (
+        IPA_EVAPORATION_SHARE * result["Total_Evaporation_Loss_g"]
+    )
+    result["Water_Loss_g"] = (
+        WATER_EVAPORATION_SHARE * result["Total_Evaporation_Loss_g"]
+    )
+    invalid_ipa = result["IPA_Loss_g"] > result["m_IPA_nom_g"]
+    invalid_water = result["Water_Loss_g"] > result["m_Water_nom_g"]
+    if invalid_ipa.any() or invalid_water.any():
+        row = result.loc[invalid_ipa | invalid_water].iloc[0]
+        component = "IPA" if bool(invalid_ipa.loc[row.name]) else "water"
+        raise ValueError(
+            f"Cumulative {component} loss exceeds the nominal component mass at "
             f"{row['Experiment_Key']}, source row {int(row['Source_Row'])}."
         )
 
     result["m_IPA_eff_g"] = result["m_IPA_nom_g"] - result["IPA_Loss_g"]
-    result["m_Total_eff_g"] = result["m_Total_nom_g"] - result["IPA_Loss_g"]
+    result["m_Water_eff_g"] = result["m_Water_nom_g"] - result["Water_Loss_g"]
+    result["m_Total_eff_g"] = (
+        result["m_Total_nom_g"] - result["Total_Evaporation_Loss_g"]
+    )
     denominator = result["m_Total_eff_g"]
     result["Al_wt_pct_eff"] = 100.0 * result["m_Al_nom_g"] / denominator
     result["IPA_wt_pct_eff"] = 100.0 * result["m_IPA_eff_g"] / denominator
     result["PG_wt_pct_eff"] = 100.0 * result["m_PG_nom_g"] / denominator
     result["MG_wt_pct_eff"] = 100.0 * result["m_MG_nom_g"] / denominator
-    result["Water_wt_pct_eff"] = 100.0 * result["m_Water_nom_g"] / denominator
+    result["Water_wt_pct_eff"] = 100.0 * result["m_Water_eff_g"] / denominator
     result["Composition_Sum_wt_pct"] = result[
         [
             "Al_wt_pct_eff",
@@ -473,7 +897,9 @@ def apply_ipa_evaporation(
             "Water_wt_pct_eff",
         ]
     ].sum(axis=1)
-    return result
+    if not np.allclose(result["Composition_Sum_wt_pct"], 100.0, atol=1e-8):
+        raise RuntimeError("Effective composition does not sum to 100 wt-%.")
+    return result, summaries
 
 
 def sha256_file(path: Path) -> str | None:
@@ -634,115 +1060,6 @@ def _row_uncertainty(df: pd.DataFrame, column: str, floor: float) -> np.ndarray:
     return np.maximum(values, floor)
 
 
-def huber_loss(values: np.ndarray, delta: float = 1.5) -> float:
-    absolute = np.abs(values)
-    quadratic = np.minimum(absolute, delta)
-    linear = absolute - quadratic
-    return float(np.sum(0.5 * quadratic**2 + delta * linear))
-
-
-def drift_objective(
-    rate: float,
-    experiment: pd.DataFrame,
-    calculator,
-    prior_rate: float,
-    prior_sigma: float,
-    use_prior: bool,
-) -> float:
-    keyed = {str(experiment["Experiment_Key"].iloc[0]): float(rate)}
-    simulated = simulate_rows(apply_ipa_evaporation(experiment, keyed), calculator)
-    simulated = simulated[
-        simulated["Selected_For_Calibration"] & simulated["Simulation_Status"].eq("ok")
-    ]
-    if len(simulated) < 4:
-        return np.inf
-
-    objective = 0.0
-    for _, phase in simulated.groupby("Phase"):
-        if len(phase) < 2:
-            continue
-        for residual_column, sd_column, floor in (
-            ("A_Rho_kg_m3", "Rho_S", 0.01),
-            ("A_C_m_s", "C_S", 0.05),
-        ):
-            residual = phase[residual_column].to_numpy(float)
-            sigma = _row_uncertainty(phase, sd_column, floor)
-            base_weight = 1.0 / sigma**2
-            centre = float(np.average(residual, weights=base_weight))
-            standardized = (residual - centre) / sigma
-            objective += huber_loss(standardized)
-    if use_prior:
-        objective += 0.5 * ((rate - prior_rate) / prior_sigma) ** 2
-    return float(objective)
-
-
-@dataclass
-class EvaporationEstimate:
-    experiment_key: str
-    mode: str
-    rate_g_h: float
-    objective: float | None
-    objective_at_zero: float | None
-    relative_improvement_pct: float | None
-    boundary_warning: bool
-
-
-def determine_evaporation_rates(
-    df: pd.DataFrame,
-    calculator,
-    mode: str,
-    fixed_or_prior_rate: float,
-    maximum_rate: float,
-    prior_sigma: float,
-    use_prior: bool,
-) -> tuple[dict[str, float], list[EvaporationEstimate]]:
-    rates: dict[str, float] = {}
-    summaries: list[EvaporationEstimate] = []
-    for key, experiment in df.groupby("Experiment_Key", sort=False):
-        key = str(key)
-        if mode == "none":
-            rate = 0.0
-            estimate = EvaporationEstimate(key, mode, rate, None, None, None, False)
-        elif mode == "fixed":
-            rate = fixed_or_prior_rate
-            estimate = EvaporationEstimate(key, mode, rate, None, None, None, False)
-        else:
-            objective = lambda candidate: drift_objective(
-                candidate,
-                experiment,
-                calculator,
-                fixed_or_prior_rate,
-                prior_sigma,
-                use_prior,
-            )
-            optimized = minimize_scalar(
-                objective,
-                bounds=(0.0, maximum_rate),
-                method="bounded",
-                options={"xatol": 1e-4},
-            )
-            if not optimized.success or not np.isfinite(optimized.fun):
-                raise RuntimeError(f"Evaporation optimization failed for {key}.")
-            rate = float(optimized.x)
-            at_zero = float(objective(0.0))
-            improvement = (
-                100.0 * (at_zero - float(optimized.fun)) / at_zero if at_zero > 0 else np.nan
-            )
-            boundary = rate < 0.01 * maximum_rate or rate > 0.99 * maximum_rate
-            estimate = EvaporationEstimate(
-                key,
-                mode,
-                rate,
-                float(optimized.fun),
-                at_zero,
-                float(improvement),
-                boundary,
-            )
-        rates[key] = rate
-        summaries.append(estimate)
-    return rates, summaries
-
-
 def robust_location(values: np.ndarray, base_weights: np.ndarray) -> tuple[float, float, float]:
     values = np.asarray(values, dtype=float)
     weights = np.asarray(base_weights, dtype=float)
@@ -807,7 +1124,17 @@ def build_nodes(simulated: pd.DataFrame) -> pd.DataFrame:
                 "Temperature_Mean_C": float(np.average(phase["T_M"])),
                 "Temperature_Min_C": float(phase["T_M"].min()),
                 "Temperature_Max_C": float(phase["T_M"].max()),
+                "Total_Evaporation_Loss_Mean_g": float(
+                    np.average(phase["Total_Evaporation_Loss_g"])
+                ),
                 "IPA_Loss_Mean_g": float(np.average(phase["IPA_Loss_g"])),
+                "Water_Loss_Mean_g": float(np.average(phase["Water_Loss_g"])),
+                "Evaporation_Elapsed_Mean_h": float(
+                    np.average(phase["Evaporation_Elapsed_h"])
+                ),
+                "RPM_Documented_Fraction_Mean": float(
+                    np.average(phase["RPM_Documented_Fraction"])
+                ),
                 "A_Rho_kg_m3": a_rho,
                 "A_Rho_Robust_SD_kg_m3": sd_rho,
                 "A_Rho_SE_kg_m3": se_rho,
@@ -834,7 +1161,8 @@ def node_scaler(nodes: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
 def model_payload(
     nodes: pd.DataFrame,
-    evaporation_summaries: list[EvaporationEstimate],
+    evaporation_summaries: list[EvaporationSummary],
+    evaporation_protocol: dict[str, Any],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     centre, scale = node_scaler(nodes)
@@ -852,16 +1180,16 @@ def model_payload(
 
     return {
         "schema": "ink-residual-calibration-field",
-        "schema_version": 2,
+        "schema_version": 3,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "equation": "measurement = physics + A(w)",
         "residual_definition": "A = measurement - physics",
         "composition_axes": FIELD_AXES,
         "temperature_model": "InkCalculator only; A(w) has no learned temperature term",
         "evaporation_assumption": (
-            "Only IPA evaporates; MG is non-volatile in the mass balance. "
-            "IPA loss is cumulative from the first timestamp per source file "
-            "and ProbeNr."
+            "Total mass loss is split into 34 wt-% water and 66 wt-% IPA. "
+            "Loss is integrated from the documented stirring start with a "
+            "piecewise RPM-dependent total rate. MG is non-volatile."
         ),
         "methyl_gallate": {
             "source_mass_column": "m_MG",
@@ -869,7 +1197,12 @@ def model_payload(
             "residual_field_axis": "MG_wt_pct",
             "physics_argument": "mg",
         },
-        "evaporation": [summary.__dict__ for summary in evaporation_summaries],
+        "evaporation": {
+            "model": evaporation_protocol,
+            "applied_experiments": [
+                summary.__dict__ for summary in evaporation_summaries
+            ],
+        },
         "interpolation": {
             "method": "scaled_inverse_distance_weighting",
             "power": float(args.idw_power),
@@ -1108,16 +1441,23 @@ def make_diagnostic_plot(rows: pd.DataFrame, nodes: pd.DataFrame, path: Path) ->
     fig, axes = plt.subplots(2, 2, figsize=(13, 9))
     for _, part in selected.groupby("Experiment_Key"):
         label = str(part["Experiment_Key"].iloc[0])
-        axes[0, 0].plot(part["Experiment_Elapsed_h"], part["IPA_Loss_g"], ".-", label=label)
+        axes[0, 0].plot(
+            part["Evaporation_Elapsed_h"],
+            part["Total_Evaporation_Loss_g"],
+            ".-",
+            label=label,
+        )
         axes[0, 1].scatter(part["Experiment_Elapsed_h"], part["A_Rho_kg_m3"], s=18, label=label)
         axes[1, 0].scatter(part["Experiment_Elapsed_h"], part["A_C_m_s"], s=18, label=label)
-    axes[0, 0].set_title("Assumed cumulative IPA loss")
-    axes[0, 0].set_ylabel("IPA loss [g]")
+    axes[0, 0].set_title("Cumulative evaporation since stirring start")
+    axes[0, 0].set_ylabel("Total loss [g] (34% water / 66% IPA)")
     axes[0, 1].set_title("Point residuals after composition correction")
     axes[0, 1].set_ylabel("A_rho [kg/m3]")
     axes[1, 0].set_ylabel("A_c [m/s]")
+    axes[0, 0].set_xlabel("Elapsed time since stirring start [h]")
+    for axis in (axes[0, 1], axes[1, 0]):
+        axis.set_xlabel("Elapsed measurement time [h]")
     for axis in (axes[0, 0], axes[0, 1], axes[1, 0]):
-        axis.set_xlabel("Elapsed experiment time [h]")
         axis.grid(alpha=0.25)
 
     scatter = axes[1, 1].scatter(
@@ -1240,24 +1580,18 @@ def build_command(args: argparse.Namespace) -> None:
         args.settling_fraction,
         args.low_noise_keep_fraction,
     )
-    calculator = load_calculator(args.calculator, args.tables)
-    rates, evaporation_summaries = determine_evaporation_rates(
-        prepared,
-        calculator,
-        args.evaporation_mode,
-        args.evaporation_rate_g_h,
-        args.evaporation_rate_max_g_h,
-        args.evaporation_prior_sigma_g_h,
-        not args.no_evaporation_prior,
+    protocols, protocol_manifest = load_evaporation_protocol(
+        args.evaporation_protocol
     )
-    corrected = apply_ipa_evaporation(prepared, rates)
+    corrected, evaporation_summaries = apply_evaporation(prepared, protocols)
+    calculator = load_calculator(args.calculator, args.tables)
     simulated = simulate_rows(corrected, calculator)
     failures = simulated["Simulation_Status"].ne("ok")
     if failures.any():
         examples = simulated.loc[failures, "Simulation_Status"].value_counts().head(3)
         print(f"WARNING: {int(failures.sum())} simulations failed:\n{examples}")
     nodes = build_nodes(simulated)
-    payload = model_payload(nodes, evaporation_summaries, args)
+    payload = model_payload(nodes, evaporation_summaries, protocol_manifest, args)
     payload["training_data"] = source_manifest(raw)
     payload["training_measurement_keys"] = measurement_keys(simulated.loc[
         simulated["Selected_For_Calibration"] & simulated["Simulation_Status"].eq("ok")]).tolist()
@@ -1281,16 +1615,14 @@ def build_command(args: argparse.Namespace) -> None:
     )
     make_diagnostic_plot(simulated, nodes, plot_path)
 
-    print("\nEvaporation estimates")
+    print("\nApplied evaporation correction")
     print("-" * 100)
     evaporation_frame = pd.DataFrame([summary.__dict__ for summary in evaporation_summaries])
     print(evaporation_frame.round(6).to_string(index=False))
-    if any(summary.boundary_warning for summary in evaporation_summaries):
-        print("WARNING: At least one rate is close to an optimization bound and is weakly identified.")
-    if args.evaporation_mode == "estimate":
+    if any(summary.rpm_documented_fraction_to_last < 0.999 for summary in evaporation_summaries):
         print(
-            "NOTE: Drift-derived rates are equivalent IPA-loss rates, not an independent "
-            "chemical proof of evaporation. Prefer a gravimetric fixed rate when available."
+            "NOTE: At least one experiment contains undocumented RPM periods; those periods "
+            f"use the robust total-loss rate {UNDOCUMENTED_TOTAL_RATE_G_H:.3f} g/h."
         )
     print_nodes(nodes)
     print("\nSaved calibration field")
@@ -1378,6 +1710,17 @@ def phase_evaluation_summary(rows: pd.DataFrame) -> pd.DataFrame:
             "Temperature_Mean_C": float(composition_rows["T_M"].mean()),
             "Temperature_Min_C": float(composition_rows["T_M"].min()),
             "Temperature_Max_C": float(composition_rows["T_M"].max()),
+            "Evaporation_Elapsed_Mean_h": float(
+                composition_rows["Evaporation_Elapsed_h"].mean()
+            ),
+            "Total_Evaporation_Loss_Mean_g": float(
+                composition_rows["Total_Evaporation_Loss_g"].mean()
+            ),
+            "IPA_Loss_Mean_g": float(composition_rows["IPA_Loss_g"].mean()),
+            "Water_Loss_Mean_g": float(composition_rows["Water_Loss_g"].mean()),
+            "RPM_Documented_Fraction_Mean": float(
+                composition_rows["RPM_Documented_Fraction"].mean()
+            ),
         }
         for component in ("Al", "IPA", "PG", "MG", "Water"):
             values = composition_rows[f"{component}_wt_pct_eff"]
@@ -1490,6 +1833,8 @@ def write_evaluation_report(phases: pd.DataFrame, metrics: pd.DataFrame,
         return f"<h2>{html.escape(text)}</h2>"
     overview_columns = ["Phase_ID", "Source_File", "ProbeNr", "N_Selected", "N_Excluded",
                         "Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct",
+                        "Total_Evaporation_Loss_Mean_g", "IPA_Loss_Mean_g",
+                        "Water_Loss_Mean_g", "RPM_Documented_Fraction_Mean",
                         "Temperature_Min_C", "Temperature_Max_C", "N_Extrapolated"]
     sections = [heading("Accuracy of phase means (equal phase weighting)"), table(metrics),
                 heading("Recipe phases and selection"), table(phases[overview_columns])]
@@ -1526,7 +1871,10 @@ th{background:#eaf0f6}tr:nth-child(even){background:#f7f9fb}li{overflow-wrap:any
 </style><main><h1>Hybrid model vs. measured ink</h1>"""
     document += f"<p><b>Calibration field:</b> {html.escape(metadata['model_path'])}</p><ul>{source_list}</ul>"
     document += f"<p><b>Selection:</b> {html.escape(metadata['quality_mode'])}; "
-    document += f"<b>Evaporation:</b> {html.escape(metadata['evaporation_mode'])} (IPA only).</p>"
+    document += (
+        "<b>Evaporation:</b> protocol-based total loss, split into "
+        "34 wt-% water and 66 wt-% IPA, integrated from stirring start.</p>"
+    )
     document += f'<p class="note">{html.escape(caution)}</p>'
     document += """<p>Each point represents one contiguous recipe phase within one sample and source file.
 Repeated phases and different days are kept separate. Measured and predicted means use exactly the
@@ -1554,17 +1902,12 @@ def evaluate_command(args: argparse.Namespace) -> None:
         prepared, args.quality_mode, args.minimum_points_per_phase,
         args.settling_fraction, args.low_noise_keep_fraction,
     )
-    calculator = load_calculator(args.calculator, args.tables)
-    rates, summaries = determine_evaporation_rates(
-        prepared,
-        calculator,
-        args.evaporation_mode,
-        args.evaporation_rate_g_h,
-        args.evaporation_rate_max_g_h,
-        args.evaporation_prior_sigma_g_h,
-        not args.no_evaporation_prior,
+    protocols, protocol_manifest = load_evaporation_protocol(
+        args.evaporation_protocol
     )
-    corrected = simulate_rows(apply_ipa_evaporation(prepared, rates), calculator)
+    corrected, summaries = apply_evaporation(prepared, protocols)
+    calculator = load_calculator(args.calculator, args.tables)
+    corrected = simulate_rows(corrected, calculator)
     predictions: list[dict[str, Any]] = []
     for index, row in corrected.iterrows():
         if row["Simulation_Status"] != "ok":
@@ -1630,7 +1973,8 @@ def evaluate_command(args: argparse.Namespace) -> None:
         "operation": "evaluate", "script_version": SCRIPT_VERSION,
         "model_path": str(args.model.resolve()), "model_sha256": sha256_file(args.model.resolve()),
         "evaluation_data": source_manifest(raw), "output_directory": str(output),
-        "quality_mode": args.quality_mode, "evaporation_mode": args.evaporation_mode,
+        "quality_mode": args.quality_mode,
+        "evaporation_model": protocol_manifest,
         "minimum_points_per_phase": args.minimum_points_per_phase,
         "settling_fraction": args.settling_fraction,
         "low_noise_keep_fraction": args.low_noise_keep_fraction,
@@ -1660,11 +2004,6 @@ def evaluate_command(args: argparse.Namespace) -> None:
         print(
             "WARNING: Physics includes MG, but the residual field has no MG axis; "
             f"{int(mg_rows.sum())} MG-containing rows used legacy residual interpolation."
-        )
-    if args.evaporation_mode == "estimate":
-        print(
-            "WARNING: Evaporation was inferred from the evaluation measurements. "
-            "For a strict external test, use a fixed independently measured rate."
         )
     print(f"\nSaved comparison: {comparison_path}")
     print(f"Saved summary:    {summary_path}")
@@ -1861,43 +2200,6 @@ def _choose_model() -> Path:
         print("Please enter one of the displayed numbers.")
 
 
-def _interactive_evaporation_arguments(for_evaluation: bool) -> list[str]:
-    if for_evaluation:
-        options = [
-            "Use a fixed, independently measured IPA loss rate (recommended)",
-            "Estimate an equivalent IPA loss rate from this CSV",
-            "Do not correct for evaporation",
-        ]
-        choice = _ask_choice("How should evaporation be handled?", options, default=1)
-        modes = {1: "fixed", 2: "estimate", 3: "none"}
-    else:
-        options = [
-            "Estimate an equivalent IPA loss rate from measurement drift",
-            "Use a fixed, independently measured IPA loss rate",
-            "Do not correct for evaporation",
-        ]
-        choice = _ask_choice("How should evaporation be handled?", options, default=1)
-        modes = {1: "estimate", 2: "fixed", 3: "none"}
-
-    mode = modes[choice]
-    arguments = ["--evaporation-mode", mode]
-    if mode == "fixed":
-        rate = _ask_float_value("IPA loss rate in g/h", default=1.5, minimum=0.0)
-        arguments.extend(["--evaporation-rate-g-h", str(rate)])
-    elif mode == "estimate":
-        prior_choice = _ask_choice(
-            "Should the 1.5 +/- 0.5 g/h prior be used?",
-            [
-                "No, estimate only from measurement drift",
-                "Yes, use the weak prior",
-            ],
-            default=1,
-        )
-        if prior_choice == 1:
-            arguments.append("--no-evaporation-prior")
-    return arguments
-
-
 def interactive_arguments() -> list[str]:
     """Run a beginner-friendly wizard and return normal argparse tokens."""
     print("=" * 72)
@@ -1916,7 +2218,6 @@ def interactive_arguments() -> list[str]:
     if command_choice == 1:
         paths = _choose_csv_files()
         samples = _ask_samples(paths)
-        evaporation = _interactive_evaporation_arguments(for_evaluation=False)
         quality_choice = _ask_choice(
             "Which measurements should be used?",
             [
@@ -1935,7 +2236,6 @@ def interactive_arguments() -> list[str]:
             + [str(path) for path in paths]
             + ["--samples"]
             + samples
-            + evaporation
             + ["--quality-mode", quality_modes[quality_choice]]
         )
 
@@ -1975,8 +2275,8 @@ def interactive_arguments() -> list[str]:
     model = _choose_model()
     paths = _choose_csv_files()
     samples = _ask_samples(paths, prefer_sample_three=False)
-    evaporation = _interactive_evaporation_arguments(for_evaluation=True)
     print(f"\nOutput root (automatic run folder): {EVALUATION_ROOT}")
+    print("Evaporation uses the stored RPM protocol and starts at initial stirring.")
     print("Phase summaries use automatic quality selection; raw rows are retained.")
     print("\nStarting external CSV evaluation ...")
     return (
@@ -1984,7 +2284,6 @@ def interactive_arguments() -> list[str]:
         + [str(path) for path in paths]
         + ["--samples"]
         + samples
-        + evaporation
     )
 
 
