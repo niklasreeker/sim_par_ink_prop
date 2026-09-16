@@ -1,0 +1,250 @@
+{
+  "operation": "evaluate",
+  "script_version": "4.0-water-ipa-evaporation",
+  "model_path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_8_9_10__Kennfeld_v2_21__korrigiert__20260911_122637\\calibration_field.json",
+  "model_sha256": "6fd2961b21bf954d958d12c17d15f670a7215d27093754000f09e7947fe7c86a",
+  "evaluation_data": [
+    {
+      "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Kennfeld_v2 (21)_korrigiert.csv",
+      "filename": "Kennfeld_v2 (21)_korrigiert.csv",
+      "sha256": "2dbcd41211ae2b7a860ad5ac162bb755f5268f66d7c64533b8711c40eb232a2d",
+      "samples": [
+        11
+      ]
+    }
+  ],
+  "output_directory": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibrated_model_evaluation\\field_probe_8_9_10__Kennfeld_v2_21__korrigier_22a96ca8__data_Kennfeld_v2_21__korrigiert__probe_11__20260911_125007",
+  "quality_mode": "auto",
+  "evaporation_model": {
+    "timezone": "Europe/Berlin",
+    "ipa_mass_fraction": 0.66,
+    "water_mass_fraction": 0.34,
+    "rpm_rate_anchors": [
+      {
+        "rpm": 0.0,
+        "total_rate_g_h": 1.82
+      },
+      {
+        "rpm": 180.0,
+        "total_rate_g_h": 1.82
+      },
+      {
+        "rpm": 400.0,
+        "total_rate_g_h": 1.89
+      },
+      {
+        "rpm": 600.0,
+        "total_rate_g_h": 2.72
+      }
+    ],
+    "undocumented_total_rate_g_h": 2.281,
+    "external_path": null,
+    "external_sha256": null,
+    "experiments": [
+      {
+        "probe": 3,
+        "date": "2026-08-21",
+        "stirring_start": "10:50",
+        "default_total_rate_g_h": 2.281,
+        "note": "45 min pre-stirring; RPM not documented"
+      },
+      {
+        "probe": 4,
+        "date": "2026-08-27",
+        "stirring_start": "09:11",
+        "default_total_rate_g_h": 2.281,
+        "note": "60 min stirring plus 10 min pumping; RPM not documented"
+      },
+      {
+        "probe": 5,
+        "date": "2026-08-28",
+        "stirring_start": "11:22",
+        "default_total_rate_g_h": 2.281,
+        "schedule": [
+          {
+            "time": "12:54",
+            "rpm": 374
+          }
+        ],
+        "note": "45 min stirring plus 4 min pumping; later 374 rpm"
+      },
+      {
+        "probe": 6,
+        "date": "2026-09-01",
+        "stirring_start": "12:58",
+        "default_rpm": 400,
+        "schedule": [
+          {
+            "time": "12:58",
+            "rpm": 600
+          },
+          {
+            "time": "14:08",
+            "rpm": 400
+          }
+        ],
+        "note": "70 min at 600 rpm, measurement at 400 rpm"
+      },
+      {
+        "probe": 7,
+        "date": "2026-09-01",
+        "stirring_start": "12:44",
+        "default_rpm": 400,
+        "schedule": [
+          {
+            "time": "12:44",
+            "rpm": 500
+          },
+          {
+            "time": "13:54",
+            "rpm": 400
+          }
+        ],
+        "note": "70 min at 500 rpm, measurement at 400 rpm"
+      },
+      {
+        "probe": 8,
+        "date": "2026-09-02",
+        "stirring_start": "10:41",
+        "default_total_rate_g_h": 2.281,
+        "schedule": [
+          {
+            "time": "10:41",
+            "rpm": 600
+          },
+          {
+            "time": "11:51",
+            "total_rate_g_h": 2.281
+          }
+        ],
+        "note": "70 min at 600 rpm; later RPM not documented"
+      },
+      {
+        "probe": 9,
+        "date": "2026-09-07",
+        "stirring_start": "09:30",
+        "default_rpm": 181,
+        "schedule": [
+          {
+            "time": "09:30",
+            "rpm": 600
+          },
+          {
+            "time": "11:00",
+            "rpm": 138
+          },
+          {
+            "time": "11:41",
+            "rpm": 500
+          },
+          {
+            "time": "11:47",
+            "rpm": 181
+          },
+          {
+            "time": "13:13",
+            "rpm": 580
+          },
+          {
+            "time": "14:22",
+            "rpm": 181
+          }
+        ],
+        "note": "RPM changes reconstructed from the laboratory diary"
+      },
+      {
+        "probe": 10,
+        "date": "2026-09-08",
+        "stirring_start": "09:00",
+        "default_rpm": 180,
+        "schedule": [
+          {
+            "time": "09:00",
+            "rpm": 600
+          },
+          {
+            "time": "10:20",
+            "rpm": 180
+          },
+          {
+            "time": "10:48",
+            "rpm": 500
+          },
+          {
+            "time": "10:55",
+            "rpm": 170
+          },
+          {
+            "time": "11:49",
+            "rpm": 180
+          },
+          {
+            "time": "12:18",
+            "rpm": 170
+          },
+          {
+            "time": "12:57",
+            "rpm": 600
+          },
+          {
+            "time": "14:13",
+            "rpm": 170
+          },
+          {
+            "time": "14:45",
+            "rpm": 180
+          }
+        ],
+        "note": "RPM changes reconstructed from the laboratory diary"
+      },
+      {
+        "probe": 11,
+        "date": "2026-09-09",
+        "stirring_start": "09:05",
+        "default_rpm": 180,
+        "schedule": [
+          {
+            "time": "09:05",
+            "rpm": 600
+          },
+          {
+            "time": "10:18",
+            "rpm": 180
+          },
+          {
+            "time": "12:18",
+            "rpm": 550
+          },
+          {
+            "time": "13:30",
+            "rpm": 180
+          }
+        ],
+        "note": "RPM changes reconstructed from the laboratory diary"
+      },
+      {
+        "probe": 102,
+        "date": "2026-09-01",
+        "stirring_start": "10:36",
+        "default_total_rate_g_h": 2.281,
+        "note": "60 min pre-stirring; RPM not documented"
+      },
+      {
+        "probe": 102,
+        "date": "2026-09-02",
+        "stirring_start": "10:44",
+        "default_rpm": 400,
+        "note": "45 min pre-stirring at 400 rpm"
+      }
+    ]
+  },
+  "minimum_points_per_phase": 5,
+  "settling_fraction": 0.3,
+  "low_noise_keep_fraction": 0.6,
+  "reference_rows_excluded": 0,
+  "training_overlap_selected_rows": 0,
+  "training_overlap_check_available": true,
+  "legacy_possible_overlap": false,
+  "calculator_path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\ink_calculator.py",
+  "calculator_sha256": "cc8fb9bf7c9c1c018a266fd8e6dd1287c63ce28dadd41ffebef75a63120b43b8"
+}

@@ -484,13 +484,27 @@ def add_timestamps_and_phases(
     result = df.copy()
     require_columns(result, MASS_COLUMNS + ["ProbeNr", date_column, time_column])
 
+    # Parse ISO dates explicitly before applying the day-first fallback.  With
+    # ``format="mixed", dayfirst=True`` pandas may interpret an ISO value such
+    # as 2026-09-08 as 9 August instead of 8 September.  Normalising the date
+    # first preserves ISO semantics while still accepting laboratory exports
+    # that use a day-first representation such as 08.09.2026.
+    date_text = result[date_column].astype("string").str.strip()
+    iso_mask = date_text.str.fullmatch(r"\d{4}-\d{2}-\d{2}", na=False)
+    parsed_date = pd.Series(pd.NaT, index=result.index, dtype="datetime64[ns]")
+    parsed_date.loc[iso_mask] = pd.to_datetime(
+        date_text.loc[iso_mask], errors="coerce", format="%Y-%m-%d"
+    )
+    parsed_date.loc[~iso_mask] = pd.to_datetime(
+        date_text.loc[~iso_mask], errors="coerce", format="mixed", dayfirst=True
+    )
     combined = (
-        result[date_column].astype("string").str.strip()
+        parsed_date.dt.strftime("%Y-%m-%d")
         + " "
         + result[time_column].astype("string").str.strip()
     )
     result["Measurement_Time_UTC"] = pd.to_datetime(
-        combined, errors="coerce", format="mixed", dayfirst=True, utc=True
+        combined, errors="coerce", format="mixed", yearfirst=True, utc=True
     )
     if result["Measurement_Time_UTC"].isna().any():
         bad = int(result["Measurement_Time_UTC"].isna().sum())
