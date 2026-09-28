@@ -1,0 +1,17 @@
+{
+  "operation": "build",
+  "output_directory": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809",
+  "training_data": [
+    {
+      "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Kennfeld_v2 (23)_korrigiert.csv",
+      "filename": "Kennfeld_v2 (23)_korrigiert.csv",
+      "sha256": "231dec603fad0851c8302ba41c89f4b0da4d4c636dcbed8d86726e0669cea750",
+      "samples": [
+        9,
+        10,
+        11
+      ]
+    }
+  ],
+  "reference_rows_excluded": 0
+}
