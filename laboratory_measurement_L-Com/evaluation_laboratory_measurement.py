@@ -8,7 +8,7 @@ Directory Structure:
     laboratory_measurement_L-Com/
     +-- evaluation_laboratory_measurement.py  <- this script
     +-- measurement_data/                     <- PLC CSV files
-    +-- results/                              <- Excel file and plots
+    +-- results/<CSV name>/                   <- Excel file and plots
 
 The script:
   1. Lets the user select one CSV file from "measurement_data", calculates the
@@ -329,9 +329,9 @@ def detect_recipe_changes(df: pd.DataFrame) -> pd.DataFrame:
 # 2  EXCEL EXPORT
 # =====================================================================
 
-def export_to_excel(df: pd.DataFrame) -> Path:
+def export_to_excel(df: pd.DataFrame, output_dir: Path) -> Path:
     """Writes processed measurement data and a summary per sample to .xlsx."""
-    output_path = RESULTS_DIR / "measurement_data_processed.xlsx"
+    output_path = output_dir / "measurement_data_processed.xlsx"
 
     columns = [
         "ProbeNr", "Section", "Nr", "Timestamp", "Minutes",
@@ -422,7 +422,7 @@ def _mark_changes(ax, change_x):
         ax.axvline(x, color=COLORS["mark"], ls="--", lw=1.0, alpha=0.8, zorder=0)
 
 
-def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
+def plot_sample(probe, sample_df: pd.DataFrame, output_dir: Path) -> Path:
     x = sample_df["Minutes"].to_numpy(float)
     changes = sample_df.loc[sample_df["Recipe_Changed"], "Minutes"].to_numpy(float)
 
@@ -504,7 +504,7 @@ def plot_sample(probe, sample_df: pd.DataFrame) -> Path:
     fig.suptitle(header, fontsize=11, y=0.995)
 
     fig.tight_layout(rect=[0, 0.03, 1, 0.97])
-    output_plot_path = RESULTS_DIR / f"Sample_{int(probe):03d}.png"
+    output_plot_path = output_dir / f"Sample_{int(probe):03d}.png"
     fig.savefig(output_plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return output_plot_path
@@ -534,6 +534,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     except (FileNotFoundError, ValueError) as error:
         parser.error(str(error))
+
+    output_dir = RESULTS_DIR / selected_file.stem
+    output_dir.mkdir(exist_ok=True)
 
     print("=" * 68)
     print("DATA IMPORT & PREPROCESSING")
@@ -566,7 +569,7 @@ def main(argv: list[str] | None = None) -> None:
     print("\n" + "=" * 68)
     print("EXCEL EXPORT")
     print("=" * 68)
-    excel_path = export_to_excel(df)
+    excel_path = export_to_excel(df, output_dir)
     print(f"  {excel_path.name}  (Sheets: measurement_data, Summary)")
 
     print("\n" + "=" * 68)
@@ -576,7 +579,7 @@ def main(argv: list[str] | None = None) -> None:
         if sample_df.empty:
             print(f"  Sample {int(probe)}: no usable records, plot skipped")
             continue
-        p = plot_sample(probe, sample_df.reset_index(drop=True))
+        p = plot_sample(probe, sample_df.reset_index(drop=True), output_dir)
         num_changes = int(sample_df["Recipe_Changed"].sum())
         change_info = f", {num_changes} recipe change(s)" if num_changes else ""
         dropped = int((~df.loc[df["ProbeNr"] == probe, "Record_Usable"]).sum())
@@ -584,7 +587,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  {p.name}  ({len(sample_df)} records"
               f"{change_info}{drop_info})")
 
-    print("\nDone. All outputs are saved in 'results'.")
+    print(f"\nDone. All outputs are saved in '{output_dir}'.")
 
 
 if __name__ == "__main__":
