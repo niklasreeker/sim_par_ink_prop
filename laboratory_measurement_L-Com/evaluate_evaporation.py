@@ -58,6 +58,8 @@ import re
 import sys
 import warnings
 
+from measurement_files import discover_measurement_files, find_master_file
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -246,7 +248,10 @@ def find_measurement_files(folder=None):
     found = set()
     for root in folders:
         if root.is_dir():
-            found.update(p.resolve() for p in root.glob("*.csv") if is_measurement_csv(p))
+            master = find_master_file(root)
+            if master is not None:
+                return [master.resolve()]
+            found.update(p.resolve() for p in discover_measurement_files(root) if is_measurement_csv(p))
     return sorted(found, key=lambda p: (p.name.lower(), str(p)))
 
 

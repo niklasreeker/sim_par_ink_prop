@@ -29,6 +29,8 @@ import sys
 import warnings
 from pathlib import Path
 
+from measurement_files import discover_measurement_files
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -154,13 +156,10 @@ def resolve_csv_files(path: Path, file_index: int | None = None) -> list[Path]:
     if path.is_dir():
         files = []
         required = set(REQUIRED_COLUMNS) - {"m_MG"}
-        candidates = sorted(
-            (p for p in path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"),
-            key=lambda p: (p.name.casefold(), p.name),
-        )
+        candidates = discover_measurement_files(path)
         for candidate in candidates:
             try:
-                header = pd.read_csv(candidate, comment="/", skipinitialspace=True, nrows=0)
+                header = pd.read_csv(candidate, comment="/", skipinitialspace=True, nrows=0, encoding="utf-8-sig")
                 if required.issubset(str(c).strip() for c in header.columns):
                     files.append(candidate)
                 else:
@@ -198,7 +197,7 @@ def resolve_csv_files(path: Path, file_index: int | None = None) -> list[Path]:
 def load_measurements(path: Path, file_index: int | None = None) -> pd.DataFrame:
     parts: list[pd.DataFrame] = []
     for csv_path in resolve_csv_files(path, file_index=file_index):
-        frame = pd.read_csv(csv_path, comment="/", skipinitialspace=True)
+        frame = pd.read_csv(csv_path, comment="/", skipinitialspace=True, encoding="utf-8-sig")
         frame.columns = [str(column).strip() for column in frame.columns]
         if "m_MG" not in frame.columns:
             frame["m_MG"] = 0.0

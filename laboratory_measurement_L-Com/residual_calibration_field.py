@@ -45,7 +45,7 @@ Examples
 Build a field from the documented samples::
 
     python residual_calibration_field.py build \
-      --input "measurement_data/Kennfeld_v2 (21)_korrigiert.csv" \
+      --input measurement_data \
       --samples 3 4 5 6 7 8 9 10 11 102
 
 Build with an updated external protocol::
@@ -95,6 +95,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
+
+from measurement_files import discover_measurement_files
 
 import matplotlib
 
@@ -434,7 +436,7 @@ def resolve_csv_files(paths: Iterable[Path]) -> list[Path]:
         if path.is_file():
             files.append(path)
         elif path.is_dir():
-            files.extend(sorted(path.glob("*.csv")))
+            files.extend(discover_measurement_files(path))
         else:
             raise FileNotFoundError(f"Input path does not exist: {path}")
     unique = list(dict.fromkeys(files))
@@ -446,7 +448,7 @@ def resolve_csv_files(paths: Iterable[Path]) -> list[Path]:
 def load_measurements(paths: Iterable[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for path in resolve_csv_files(paths):
-        frame = pd.read_csv(path, comment="/", skipinitialspace=True)
+        frame = pd.read_csv(path, comment="/", skipinitialspace=True, encoding="utf-8-sig")
         frame.columns = [str(column).strip() for column in frame.columns]
         if "m_MG" not in frame.columns:
             frame["m_MG"] = 0.0
@@ -2092,7 +2094,7 @@ def _ask_path(prompt: str, default: Path | None = None) -> Path:
 def _discover_measurement_csvs() -> list[Path]:
     if not DEFAULT_INPUT.is_dir():
         return []
-    return sorted(DEFAULT_INPUT.glob("*.csv"), key=lambda path: path.name.lower())
+    return discover_measurement_files(DEFAULT_INPUT)
 
 
 def _choose_csv_files() -> list[Path]:

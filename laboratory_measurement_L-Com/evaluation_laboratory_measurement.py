@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from measurement_files import discover_measurement_files
+
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -99,7 +101,7 @@ COLUMN_LABELS = {
 
 def find_measurement_files() -> list[Path]:
     """Returns the CSV files available for evaluation."""
-    files = sorted(MEASUREMENT_DATA.glob("*.csv"))
+    files = discover_measurement_files(MEASUREMENT_DATA)
     if not files:
         raise FileNotFoundError(f"No CSV files found in {MEASUREMENT_DATA}.")
     return files
@@ -136,7 +138,11 @@ def resolve_measurement_file(requested: Path, files: list[Path]) -> Path:
     if not requested.is_absolute():
         candidates.append(MEASUREMENT_DATA / requested)
 
-    available = {path.resolve(): path for path in files}
+    # Explicit legacy filenames remain usable even when the menu defaults
+    # to the accumulated Messdaten CSV.
+    available = {path.resolve(): path for path in discover_measurement_files(
+        MEASUREMENT_DATA, prefer_master=False
+    )}
     for candidate in candidates:
         resolved = candidate.resolve()
         if resolved in available:
@@ -166,7 +172,7 @@ def load_measurement_data(file_path: Path) -> pd.DataFrame:
 
     # comment="/" removes trailing comment lines such as //END,
     # skipinitialspace strips leading whitespace from values
-    data = pd.read_csv(file_path, comment="/", skipinitialspace=True)
+    data = pd.read_csv(file_path, comment="/", skipinitialspace=True, encoding="utf-8-sig")
     data.columns = [column.strip() for column in data.columns]
     data["Source_File"] = file_path.name
     print(f"  Selected: {file_path.name} ({len(data)} records)")

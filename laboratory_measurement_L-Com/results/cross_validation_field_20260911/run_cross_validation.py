@@ -11,13 +11,15 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
 LAB = ROOT / "laboratory_measurement_L-Com"
-SOURCE = LAB / "measurement_data" / "Kennfeld_v2 (21)_korrigiert.csv"
+SOURCE = LAB / "measurement_data"
 MODULE_PATH = LAB / "residual_calibration_field.py"
 OUT = Path(__file__).resolve().parent
 PROBES = tuple(range(3, 12))
 
 
 def load_module():
+    # The calibration script also imports the shared CSV discovery helper.
+    sys.path.insert(0, str(LAB))
     spec = importlib.util.spec_from_file_location("residual_calibration_field_cv", MODULE_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Cannot import {MODULE_PATH}")
@@ -230,6 +232,7 @@ def main():
         "method": "Leave-one-probe-out is the primary independent validation; structured and pairwise fields are sensitivity analyses.",
         "probes": list(PROBES),
         "source": str(SOURCE),
+        "source_files": [str(path) for path in module.resolve_csv_files([SOURCE])],
         "quality_selection": "auto",
         "idw_power": 2.0,
         "idw_neighbors": 4,
