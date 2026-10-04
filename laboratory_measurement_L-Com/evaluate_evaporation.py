@@ -58,7 +58,8 @@ import re
 import sys
 import warnings
 
-from measurement_files import discover_measurement_files, find_master_file
+from measurement_data.measurement_files import discover_measurement_files, find_master_file
+from measurement_data.measurement_time import measurement_timestamps_utc
 
 import matplotlib
 matplotlib.use("Agg")
@@ -266,7 +267,7 @@ def read_measurements(path, max_gap_min=60):
             raise ValueError("Leere Messdatei.")
     df = pd.read_csv(path, sep=sep, skipinitialspace=True, comment="/", encoding="utf-8-sig")
     df.columns = df.columns.str.strip()
-    required = ["Date", "UTC Time", "ProbeNr", "Rho_M", "C_M", "T_M"] + MASS_COLUMNS[:-1]
+    required = ["Date", "ProbeNr", "Rho_M", "C_M", "T_M"] + MASS_COLUMNS[:-1]
     missing = set(required) - set(df.columns)
     if missing:
         raise ValueError(f"Fehlende CSV-Spalten: {sorted(missing)}")
@@ -276,9 +277,7 @@ def read_measurements(path, max_gap_min=60):
     for col in set(MASS_COLUMNS + ["ProbeNr", "Rho_M", "C_M", "T_M", "Rho_S", "C_S",
                                    "SensOK", "Stabil", "Gueltig", "N"]) & set(df.columns):
         df[col] = pd.to_numeric(df[col].astype(str).str.strip().str.replace(",", ".", regex=False), errors="coerce")
-    df["Timestamp"] = pd.to_datetime(df["Date"].astype(str).str.strip() + " " +
-                                     df["UTC Time"].astype(str).str.strip(), format="mixed",
-                                     dayfirst=False, utc=True, errors="coerce")
+    df["Timestamp"] = measurement_timestamps_utc(df)
     if df["Timestamp"].isna().any() or df["ProbeNr"].isna().any():
         raise ValueError("Ungueltige Zeitstempel/Probennummern: vor einer Zeitauswertung korrigieren.")
     if df[MASS_COLUMNS].isna().any().any() or (df[MASS_COLUMNS] < 0).any().any():

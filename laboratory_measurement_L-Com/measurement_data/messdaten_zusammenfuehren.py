@@ -7,6 +7,11 @@ Ohne Argumente: interaktive Auswahl zum Erstellen/Erweitern.
 --files DATEI ...: nur diese Exporte importieren (beim ersten Mal plus Version 25).
 --dry-run: Import prüfen, ohne Dateien zu verändern.
 Die Roh-Exporte bleiben unverändert; _korrigiert-Dateien werden nicht importiert.
+Die gemeinsame CSV enthält deutsche Ortszeit (Europe/Berlin), einschließlich
+Sommer-/Winterzeit. Bestehende UTC-Gesamtdateien werden beim Import umgestellt.
+"Date" ist das deutsche Messdatum, "Deutsche Zeit" die zugehörige Uhrzeit.
+"UTC Offset" unterscheidet die Sommerzeit (+02:00) von der Winterzeit (+01:00),
+auch während der doppelt vorkommenden Stunde bei der Zeitumstellung im Oktober.
 """
 
 from __future__ import annotations
@@ -24,7 +29,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from measurement_files import find_master_file
+from measurement_data.measurement_files import find_master_file
+from measurement_data.measurement_time import (
+    LOCAL_TIME_COLUMN, OFFSET_COLUMN, UTC_TIME_COLUMN,
+    format_offset, format_time, german_timezone, timestamp_utc,
+)
 
 
 DEFAULT_FOLDER = Path(__file__).resolve().parent
@@ -65,10 +74,23 @@ def find_exports(folder: Path) -> list[Path]:
 
 
 def measurement_time(row: dict[str, str]) -> datetime:
-    date_text = row["Date"]
-    if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", date_text):
-        date_text = datetime.strptime(date_text, "%d.%m.%Y").strftime("%Y-%m-%d")
-    return datetime.fromisoformat(date_text + "T" + row["UTC Time"])
+    # Import rows are normalized to UTC before merging or correcting them.
+    return timestamp_utc(row["Date"], row[UTC_TIME_COLUMN]).replace(tzinfo=None)
+
+
+def stored_columns(path: Path) -> list[str]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        lines = (line for line in handle if line.strip() and not line.lstrip().startswith(("/", "#")))
+        return [column.strip() for column in next(csv.reader(lines), [])]
+
+
+def local_output_row(row: dict[str, str]) -> dict[str, str]:
+    local = timestamp_utc(row["Date"], row[UTC_TIME_COLUMN]).astimezone(german_timezone())
+    result = {column: value for column, value in row.items() if column != UTC_TIME_COLUMN}
+    result["Date"] = local.date().isoformat()
+    result[LOCAL_TIME_COLUMN] = format_time(local)
+    result[OFFSET_COLUMN] = format_offset(local)
+    return result
 
 
 def measurement_key(row: dict[str, str]) -> tuple[int, datetime]:
@@ -116,21 +138,35 @@ def correct_row(row: dict[str, str]) -> set[str]:
 
 
 def read_measurements(path: Path) -> tuple[list[str], list[dict[str, str]]]:
-    """Validate the entire export before an existing working CSV is changed."""
+    """Validate input and return canonical UTC rows for merging/corrections."""
     rows = []
     try:
         with path.open(encoding="utf-8-sig", newline="") as handle:
             lines = (line for line in handle if line.strip() and not line.lstrip().startswith(("/", "#")))
             reader = csv.reader(lines, strict=True)
-            columns = [c.strip() for c in next(reader, [])]
+            stored_header = [c.strip() for c in next(reader, [])]
+            if len(stored_header) != len(set(stored_header)):
+                raise ValueError(f"{path.name}: doppelte CSV-Spalten.")
+            local_input = LOCAL_TIME_COLUMN in stored_header
+            if local_input and (UTC_TIME_COLUMN in stored_header or OFFSET_COLUMN not in stored_header):
+                raise ValueError(f"{path.name}: deutsche Messzeiten benötigen genau eine Zeitspalte und {OFFSET_COLUMN}.")
+            if not local_input and OFFSET_COLUMN in stored_header:
+                raise ValueError(f"{path.name}: {OFFSET_COLUMN} benötigt {LOCAL_TIME_COLUMN}.")
+            columns = [UTC_TIME_COLUMN if c == LOCAL_TIME_COLUMN else c
+                       for c in stored_header if c != OFFSET_COLUMN]
             missing = REQUIRED_COLUMNS - set(columns)
             if missing or len(columns) != len(set(columns)):
                 raise ValueError(f"{path.name}: ungültige CSV-Spalten; fehlend: {sorted(missing)}")
             for number, values in enumerate(reader, start=2):
-                if len(values) != len(columns):
+                if len(values) != len(stored_header):
                     raise ValueError(f"{path.name}, Datensatz {number}: unvollständige CSV-Zeile.")
-                row = dict(zip(columns, (v.strip() for v in values)))
+                row = dict(zip(stored_header, (v.strip() for v in values)))
                 try:
+                    if local_input:
+                        utc = timestamp_utc(row["Date"], row[LOCAL_TIME_COLUMN], offset=row[OFFSET_COLUMN])
+                        row["Date"] = utc.date().isoformat()
+                        row[UTC_TIME_COLUMN] = format_time(utc)
+                        del row[LOCAL_TIME_COLUMN], row[OFFSET_COLUMN]
                     for column in columns:
                         if column not in TEXT_COLUMNS:
                             value = Decimal(row[column])
@@ -181,9 +217,12 @@ def save_measurements(folder: Path, previous: Path | None, columns: list[str],
                                          dir=folder, prefix=".messdaten_", suffix=".tmp",
                                          delete=False) as handle:
             temporary = Path(handle.name)
-            writer = csv.DictWriter(handle, fieldnames=columns)
+            output_columns = []
+            for column in columns:
+                output_columns.extend([LOCAL_TIME_COLUMN, OFFSET_COLUMN] if column == UTC_TIME_COLUMN else [column])
+            writer = csv.DictWriter(handle, fieldnames=output_columns)
             writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows(local_output_row(row) for row in rows)
             handle.flush()
             os.fsync(handle.fileno())
         # Atomically replace the contents first. If renaming fails (e.g. an
@@ -210,6 +249,7 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
         raise FileNotFoundError(f"Messdatenordner nicht gefunden: {folder}")
     with import_lock(folder):
         previous = find_master_file(folder)
+        migrate_time = previous is not None and LOCAL_TIME_COLUMN not in stored_columns(previous)
         exports = find_exports(folder) if sources is None else [Path(p).resolve() for p in sources]
         for path in exports:
             if path.parent != folder or export_version(path) < FIRST_VERSION:
@@ -220,7 +260,7 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
                 raise FileNotFoundError("Für den ersten Import fehlt Kennfeld_v2 (25).csv mit den ältesten Messungen.")
             exports.insert(0, base)
         exports = sorted(set(exports), key=export_version)
-        if not exports:
+        if not exports and previous is None:
             raise FileNotFoundError("Keine Kennfeld_v2 (XX).csv ab Version 25 zum Importieren gefunden.")
 
         merged = {}
@@ -261,8 +301,10 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
         rows = [merged[key] for key in sorted(merged, key=lambda key: (key[1], key[0]))]
         sequences = sorted({key[0] for key in merged})
         gaps = [(left + 1, right - 1) for left, right in zip(sequences, sequences[1:]) if right > left + 1]
-        changed = previous is None or added > 0 or corrected_existing
-        timestamp = now or datetime.now().astimezone()
+        changed = previous is None or added > 0 or corrected_existing or migrate_time
+        timestamp = now or datetime.now(german_timezone())
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone(german_timezone())
         output = folder / f"Messdaten_{timestamp:%Y-%m-%d_%H-%M-%S}.csv" if changed else previous
         if changed and not dry_run:
             output = save_measurements(folder, previous, columns, rows, timestamp)
@@ -273,6 +315,7 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
 def print_result(result: ImportResult, dry_run: bool) -> None:
     print(f"\n{'Vorschau' if dry_run else 'Messdatei'}: {result.path.name}")
     print(f"Messpunkte insgesamt: {result.total}; neu: {result.added}; bereits vorhanden: {result.duplicates}")
+    print("Messzeiten: deutsche Ortszeit (Europe/Berlin; Sommer-/Winterzeit automatisch).")
     if any(result.corrections.values()):
         print("Bekannte Korrekturen beim Einlesen: " + ", ".join(f"{k}: {v}" for k, v in result.corrections.items()))
     if not result.changed:

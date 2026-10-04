@@ -29,7 +29,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from measurement_files import discover_measurement_files
+from measurement_data.measurement_files import discover_measurement_files
+from measurement_data.measurement_time import LOCAL_TIME_COLUMN, LOCAL_TIMEZONE, OFFSET_COLUMN, measurement_timestamps_utc
 
 import numpy as np
 import pandas as pd
@@ -206,16 +207,16 @@ def add_time_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["Timestamp"] = pd.NaT
 
-    if {"Date", "UTC Time"}.issubset(df.columns):
-        # S7 outputs ISO date and time with milliseconds,
-        # e.g., "2026-08-25" and "09:00:00.000".
-        raw = (df["Date"].astype(str).str.strip() + " "
-               + df["UTC Time"].astype(str).str.strip().str.upper())
-        ts = pd.to_datetime(raw, format="%Y-%m-%d %H:%M:%S.%f",
-                            errors="coerce")
-        if ts.isna().any():   # fallback for alternate CPU date/time formats
-            ts = pd.to_datetime(raw, errors="coerce")
-        df["Timestamp"] = ts
+    df["Timestamp_UTC"] = pd.NaT
+    if "Date" in df.columns and ("UTC Time" in df.columns or LOCAL_TIME_COLUMN in df.columns):
+        timestamps = measurement_timestamps_utc(df)
+        local = timestamps.dt.tz_convert(LOCAL_TIMEZONE)
+        # Excel needs naive values. Keep UTC separately for elapsed durations
+        # and ordering through the repeated autumn hour.
+        df["Timestamp"] = local.dt.tz_localize(None)
+        df["Timestamp_UTC"] = timestamps.dt.tz_convert(None)
+        offset = local.dt.strftime("%z")
+        df[OFFSET_COLUMN] = offset.str[:3] + ":" + offset.str[3:]
 
     if df["Timestamp"].notna().any():
         years = df["Timestamp"].dt.year.dropna()
@@ -224,10 +225,10 @@ def add_time_columns(df: pd.DataFrame) -> pd.DataFrame:
                   f"Absolute times are unreliable; time differences "
                   f"within a sample remain valid.")
 
-    df = df.sort_values(["ProbeNr", "Timestamp", "Nr"], kind="stable")
+    df = df.sort_values(["ProbeNr", "Timestamp_UTC", "Nr"], kind="stable")
 
     if df["Timestamp"].notna().all():
-        df["Minutes"] = (df.groupby("ProbeNr")["Timestamp"]
+        df["Minutes"] = (df.groupby("ProbeNr")["Timestamp_UTC"]
                            .transform(lambda s: (s - s.min()).dt.total_seconds() / 60))
     else:
         # Fallback index if timestamps cannot be parsed
@@ -340,7 +341,7 @@ def export_to_excel(df: pd.DataFrame, output_dir: Path) -> Path:
     output_path = output_dir / "measurement_data_processed.xlsx"
 
     columns = [
-        "ProbeNr", "Section", "Nr", "Timestamp", "Minutes",
+        "ProbeNr", "Section", "Nr", "Timestamp", OFFSET_COLUMN, "Minutes",
         "m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG", "m_total",
         "w_Al", "w_IPA", "w_PG", "w_MG", "w_H2O",
         "Rho_M", "Rho_S", "Rho_Sp", "C_M", "C_S", "C_Sp",
@@ -502,7 +503,7 @@ def plot_sample(probe, sample_df: pd.DataFrame, output_dir: Path) -> Path:
               f"{first_row['w_PG']:.3f}% PG / {first_row['w_MG']:.3f}% MG   \u00b7   "
               f"Water balance {first_row['w_H2O']:.2f}%")
     if pd.notna(first_row.get("Timestamp", pd.NaT)):
-        header += f"\nStart {first_row['Timestamp']:%Y-%m-%d %H:%M} (UTC)   \u00b7   "
+        header += f"\nStart {first_row['Timestamp']:%Y-%m-%d %H:%M} (Europe/Berlin)   \u00b7   "
     else:
         header += "\n"
     header += (f"{len(sample_df)} records   \u00b7   "

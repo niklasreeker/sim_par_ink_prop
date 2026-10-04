@@ -29,7 +29,8 @@ import sys
 import warnings
 from pathlib import Path
 
-from measurement_files import discover_measurement_files
+from measurement_data.measurement_files import discover_measurement_files
+from measurement_data.measurement_time import LOCAL_TIME_COLUMN, measurement_timestamps_utc
 
 import matplotlib
 
@@ -138,7 +139,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--time-column",
         default="UTC Time",
-        help="Spalte mit der Messzeit für die Zeitanalyse (Standard: UTC Time).",
+        help="Messzeitspalte (Standard: automatische Erkennung von deutscher Zeit oder UTC Time).",
     )
     parser.add_argument(
         "--time-segment-gap-min",
@@ -252,21 +253,15 @@ def add_time_information(
     result["Time_Segment"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
     result["Segment_Elapsed_h"] = np.nan
 
-    if date_column not in result.columns or time_column not in result.columns:
+    has_time = time_column in result.columns or (time_column == "UTC Time" and LOCAL_TIME_COLUMN in result.columns)
+    if date_column not in result.columns or not has_time:
         print(
             f"  WARNING: Zeitspalten '{date_column}' und/oder '{time_column}' fehlen; "
             "Zeitanalyse wird übersprungen."
         )
         return result
 
-    combined = result[date_column].astype("string").str.strip() + " " + result[time_column].astype("string").str.strip()
-    timestamps = pd.to_datetime(
-        combined,
-        errors="coerce",
-        format="mixed",
-        dayfirst=True,
-        utc=True,
-    )
+    timestamps = measurement_timestamps_utc(result, date_column, time_column)
     result["Measurement_Time_UTC"] = timestamps.dt.tz_convert(None)
 
     group_columns = _time_group_columns(result)
