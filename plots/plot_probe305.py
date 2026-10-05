@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create five plain Matplotlib diagrams for Probe 305.
+"""Create six plain Matplotlib diagrams for Probe 305.
 
 Place this file in sim_par_ink_prop, next to ink_calculator.py, then run:
     python plot_probe305.py
@@ -15,6 +15,9 @@ The composition inversion preserves Pigment:PG:MG = 1:2:0.125. P1 is anchored
 to the known initial recipe. CONSTANT measurement-minus-model offsets are then
 subtracted from every later measurement. Formal inverse solutions can violate
 the evaporation-only assumption; these violations are reported, not removed.
+Plot 6 independently inverts all four points with the calibration field,
+without anchoring P1 to the recipe or subtracting an additional sensor offset.
+The resulting compositions are pointwise fits, not a validated evaporation path.
 
 Temperature correction, separately for density and sound velocity:
     y_corrected = y_measured + h(composition, T_reference) - h(composition, T_i)
@@ -171,11 +174,17 @@ def properties(calculator, comp: np.ndarray, temperature: float, field=None) -> 
     return result if field is None else result + field.residual(comp)
 
 
-def invert(calculator, points: list[dict], field=None) -> tuple[np.ndarray, np.ndarray]:
-    offset = np.array([points[0]["rho"], points[0]["sound"]]) - properties(
-        calculator, STANDARD, points[0]["temperature"], field)
-    states = [STANDARD.copy()]  # P1 fixes the offset; it is not an independent prediction.
-    for point in points[1:]:
+def invert(calculator, points: list[dict], field=None, *, anchor_recipe=True) -> tuple[np.ndarray, np.ndarray]:
+    if anchor_recipe:
+        offset = np.array([points[0]["rho"], points[0]["sound"]]) - properties(
+            calculator, STANDARD, points[0]["temperature"], field)
+        states = [STANDARD.copy()]  # P1 fixes the offset; it is not an independent prediction.
+        selected_points = points[1:]
+    else:
+        offset = np.zeros(2)
+        states = []
+        selected_points = points
+    for point in selected_points:
         target = np.array([point["rho"], point["sound"]]) - offset
         def residual(values):
             return (properties(calculator, composition(*values), point["temperature"], field) - target) / [.1, 1.]
@@ -228,7 +237,8 @@ def time_axis(axis, times, labels=None):
     axis.margins(x=.08)
 
 
-def create_plots(calculator, points, states, hybrid, output: Path, formats, show: bool):
+def create_plots(calculator, points, states, hybrid, output: Path, formats, show: bool,
+                 field_states_without_offset=None):
     plt.style.use("default")  # Normal Matplotlib design: no theme or custom typography.
     output.mkdir(parents=True, exist_ok=True)
     figures = []
@@ -309,6 +319,29 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
     sensor_plot(normalized, f"Dichte und Schall, korrigiert auf {reference:.3f} °C", "05_Dichte_Schall_temperaturkorrigiert", compare_raw=True)
     # Error bars in the corrected plot retain the ORIGINAL within-window SD.
     # They do not include uncertainty of the model, the inferred composition or T.
+    if field_states_without_offset is not None:
+        direct = field_states_without_offset
+        fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True,
+                                 gridspec_kw={"height_ratios": [2, 1]})
+        for j, label in enumerate(COMPONENTS[:4]):
+            axes[0].plot(sensor_times, direct[:, j], "o-", label=label)
+        axes[0].set(ylabel="Pigment, IPA, PG, MG [Masse-%]",
+                    title="Rückrechnung mit Kalibrierfeld\nOhne zusätzlichen Sensoroffset", ylim=(0, 6))
+        axes[0].legend(ncol=2)
+        axes[1].plot(sensor_times, direct[:, 4], "o-", label="Wasser")
+        axes[1].set_ylabel("Wasser [Masse-%]")
+        axes[1].legend()
+        ratios = direct[:, [1, 4]] / direct[:, [0]]
+        flags = [False] + [bool(np.any(ratios[i] > ratios[0] + 1e-8)
+                               or np.any(ratios[i] > ratios[i - 1] + 1e-8))
+                           for i in range(1, len(points))]
+        labels = [point["name"] + ("*" if flag else "") + "\n" + time.strftime("%H:%M")
+                  for point, time, flag in zip(points, sensor_times, flags)]
+        for ax in axes:
+            time_axis(ax, sensor_times, labels)
+        axes[0].set_xlabel("")
+        axes[1].set_xlabel("Uhrzeit am 02.10.2026 (MESZ); *: Bilanzabweichung")
+        save(fig, "06_Zusammensetzung_Kalibrierfeld_ohne_Offset")
     summary = pd.DataFrame({"Punkt": [p["name"] for p in points], "T_C": temperatures,
                             "Rho_roh_kg_m3": rho, "C_roh_m_s": sound,
                             "Delta_Rho_T_kg_m3": correction[:, 0], "Delta_C_T_m_s": correction[:, 1],
@@ -347,10 +380,23 @@ def main():
         if np.any(ratio > states[0, [1, 4]] / states[0, 0] + 1e-8) or np.any(ratio > states[i - 1, [1, 4]] / states[i - 1, 0] + 1e-8):
             print(f"HINWEIS {points[i]['name']}: Wasser/Pigment oder IPA/Pigment steigt gegenüber dem Start oder dem vorherigen Punkt. Die formale Rückrechnung verletzt die reine Verdunstungsannahme.")
     hybrid = None
+    field_states_without_offset = None
     field_path = args.calibration_field or repo / FIELD_RELATIVE
     if not args.no_field and field_path.is_file():
         field = CalibrationField(field_path, repo)
         hybrid, field_offset = invert(calculator, points, field)
+        field_states_without_offset, _ = invert(calculator, points, field, anchor_recipe=False)
+        print("\nPlot 6: punktweise Kalibrierfeld-Rückrechnung ohne zusätzlichen Sensoroffset")
+        print(pd.DataFrame(field_states_without_offset, index=[p["name"] for p in points],
+                           columns=COMPONENTS).to_string(float_format=lambda v: f"{v:.6f}"))
+        ratios = field_states_without_offset[:, [1, 4]] / field_states_without_offset[:, [0]]
+        for i, (point, comp) in enumerate(zip(points, field_states_without_offset)):
+            outside = field.outside_axes(comp)
+            if outside:
+                print(f"HINWEIS Plot 6 {point['name']}: Kalibrierfeld außerhalb der Trainingsbereiche für {', '.join(outside)}.")
+            if i and (np.any(ratios[i] > ratios[0] + 1e-8)
+                      or np.any(ratios[i] > ratios[i - 1] + 1e-8)):
+                print(f"HINWEIS Plot 6 {point['name']}: Bilanzabweichung; die punktweisen Lösungen bilden keinen reinen Verdunstungsverlauf.")
         print(f"Kalibrierfeld Offset: Dichte {field_offset[0]:+.6f} kg/m³, Schall {field_offset[1]:+.6f} m/s")
         for point, comp in zip(points, hybrid):
             outside = field.outside_axes(comp)
@@ -360,8 +406,11 @@ def main():
         raise FileNotFoundError(field_path)
     elif not args.no_field:
         print("Kalibrierfeld nicht gefunden; Diagramm 4 verwendet nur den Ink Calculator.")
+    if field_states_without_offset is None:
+        print("Diagramm 6 wird ohne Kalibrierfeld nicht erstellt.")
     output = args.output_dir or Path(__file__).resolve().parent / "results_Probe305"
-    create_plots(calculator, points, states, hybrid, output, args.formats, not args.no_show)
+    create_plots(calculator, points, states, hybrid, output, args.formats, not args.no_show,
+                 field_states_without_offset=field_states_without_offset)
 
 
 if __name__ == "__main__":
