@@ -1,0 +1,27 @@
+{
+  "probe": 306,
+  "date": "2026-10-05",
+  "nominal_recipe_pct": {
+    "Pigment/Al": 1.8142431081734647,
+    "IPA": 3.6284862163469294,
+    "PG": 3.6284862163469294,
+    "MG": 0.22670482024826696,
+    "Wasser": 90.70207963888441
+  },
+  "calibration_field_default": "laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+  "notes": [
+    "Fensterende exklusiv; nur Gueltig=1 in ausgewählten luftarmen MTU-Pausen.",
+    "Fenster-SD ist keine vollständige Mess- oder Modellunsicherheit.",
+    "Plot 4: Calculator und Kalibrierfeld mit separatem P1-Rezepturanker.",
+    "Plot 6: alle Punkte unabhängig mit Kalibrierfeld, ohne zusätzlichen Offset.",
+    "Probenentnahmen ändern bei homogener Tinte die Zusammensetzung nicht unmittelbar.",
+    "Tankverlust kann Änderungen des Leitungsinventars enthalten.",
+    "11:35 MTU Stopp im zweiten Zyklus vermutlich 13:35; nicht als bestätigte Zeit behandelt.",
+    "Probenmassen etwa 100, 85, 81, 93 g; Waagensprünge 145, 115, 80, 75 g.",
+    "P1 liegt nach der ersten 100-g-Probe; diese ist außerhalb des P1-P4-Verlusts.",
+    "Eimerverlust 09:34-10:27: 14.6 g in 53 min = 16.53 g/h; Verlust seit 09:25 unbekannt.",
+    "Eimer-Festkörper 2.04/2.11 %, Entnahmezeit nur dem Ende des Rührens zugeordnet.",
+    "Keine Nachfüllung dokumentiert; Leerlauf, kein Druckverbrauch angesetzt.",
+    "P4 Probe/Tank 15:25; Sensor 15:52-15:57. Kein zeitgleicher Vergleich."
+  ]
+}

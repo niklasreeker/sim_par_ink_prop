@@ -1,0 +1,4 @@
+﻿Intervall,Start,Ende,Dauer_min,Tankverlust_g,Probenverlust_g,Bereinigter_Verlust_g,Rate_g_h
+P1-P2,11:00,12:37,97.0,1890.0,85.0,1805.0,1116.4948453608247
+P2-P3,12:37,13:52,75.0,1165.0,81.0,1084.0,867.2
+P3-P4,13:52,15:25,93.0,1525.0,93.0,1432.0,923.8709677419355

@@ -1,0 +1,20 @@
+{
+  "probe": 305,
+  "date": "2026-10-02",
+  "nominal_recipe_pct": {
+    "Pigment/Al": 1.8140589569160999,
+    "IPA": 3.6281179138321997,
+    "PG": 3.6281179138321997,
+    "MG": 0.22675736961451248,
+    "Wasser": 90.702947845805
+  },
+  "calibration_field_default": "laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+  "notes": [
+    "Fensterende exklusiv; nur Gueltig=1 in ausgewählten luftarmen MTU-Pausen.",
+    "Fenster-SD ist keine vollständige Mess- oder Modellunsicherheit.",
+    "Plot 4: Calculator und Kalibrierfeld mit separatem P1-Rezepturanker.",
+    "Plot 6: alle Punkte unabhängig mit Kalibrierfeld, ohne zusätzlichen Offset.",
+    "Probenentnahmen ändern bei homogener Tinte die Zusammensetzung nicht unmittelbar.",
+    "Tankverlust kann Änderungen des Leitungsinventars enthalten."
+  ]
+}
