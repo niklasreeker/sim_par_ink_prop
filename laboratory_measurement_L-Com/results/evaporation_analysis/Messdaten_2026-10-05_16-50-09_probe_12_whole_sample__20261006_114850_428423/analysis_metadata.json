@@ -1,0 +1,280 @@
+{
+  "script_version": "1.2.1-configurable-preloss",
+  "arguments": {
+    "whole_sample": true,
+    "pre_measurement_loss": 2.0,
+    "assumed_ipa_fraction": null,
+    "gap_mode": "previous",
+    "gap_rate": 2,
+    "gap_overrides": null,
+    "weighing": false,
+    "csv": null,
+    "input_dir": null,
+    "sample": null,
+    "phase": null,
+    "calculator": null,
+    "tables": null,
+    "calibration_field": null,
+    "no_calibration_field": false,
+    "calibration_dir": null,
+    "output_root": null,
+    "start_min": 0,
+    "end_min": null,
+    "prior_ipa_loss": null,
+    "prior_water_loss": null,
+    "segments": 1,
+    "max_gap_min": 60,
+    "max_ipa_rate": 15,
+    "max_water_rate": 30,
+    "max_rho_sd": 0.05,
+    "max_c_sd": 0.2,
+    "sigma_rho": null,
+    "sigma_c": null,
+    "strict_flags": false,
+    "bootstrap": 60,
+    "block_length": null,
+    "seed": 184
+  },
+  "gap_overrides": {},
+  "source": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Messdaten_2026-10-05_16-50-09.csv",
+  "source_sha256": "9f1511d916baedc536acd88aeedff1f5c003fd5596a0dbf8d1d8ad057ae1e869",
+  "calculator": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\ink_calculator.py",
+  "calculator_sha256": "cc8fb9bf7c9c1c018a266fd8e6dd1287c63ce28dadd41ffebef75a63120b43b8",
+  "tables_sha256": {
+    "ipa_density.csv": "35547d43bd0c1c424a8020b26bd3d88821901ded85bd41805b4bd4cdcd338961",
+    "ipa_density_Ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "pg_density.csv": "4866e0b39c3cbf8e49f2c7f4a91396ba027a742f3c8cfc99eee9e6cbea3d113f",
+    "pg_density_Ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "pg_sound.csv": "ea6127ca847d1d2714fe237c7dca9db0fd208c5f09ff50953e56f9bbb1d27dd7",
+    "pg_sound_claude.csv": "caa95f6a2ee8177f495ba382681756c2d0f04696a4000b52fb0a31e2423560c7",
+    "pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "pg_viscosity.csv": "8ecde964d39204748e897f86b4c930407f3495b3fa6a425c9cbffdee38066ee0"
+  },
+  "calibration_field_sha256": null,
+  "created_utc": "2026-10-06T09:55:22.909632+00:00",
+  "summary": {
+    "Sample": 12.0,
+    "Start_UTC": "2026-09-16T09:24:29.401000+00:00",
+    "End_UTC": "2026-09-16T14:04:29.684000+00:00",
+    "Duration_since_first_measurement_h": 4.666745277777777,
+    "Pre_measurement_loss_g": 2.0,
+    "Loss_since_first_measurement_g": 11.515859001716425,
+    "Total_loss_including_pre_measurement_g": 13.515859001716425,
+    "IPA_loss_g": 2.5885403845243578,
+    "Water_loss_g": 10.927318617192068,
+    "Fitted_window_loss_g": 11.515859001716425,
+    "Assumed_loss_g": 2.0,
+    "Assumed_loss_since_first_measurement_g": 0.0,
+    "Fitted_duration_h": 4.666745277777777,
+    "Assumed_duration_h": 0.0,
+    "Average_rate_since_first_measurement_g_h": 2.467642503770867,
+    "Fitted_phases": 1,
+    "Total_phases": 1,
+    "Final_masses_g": {
+      "Al": 22.0,
+      "IPA": 41.41145961547564,
+      "PG": 44.0,
+      "MG": 0.0,
+      "Water": 1089.062681382808
+    },
+    "Notices": [
+      "Fortlaufende, sequenzielle Modellbilanz; keine direkte chemische Verdunstungsmessung.",
+      "Einwaagen sind kumulative Zugaben. Al/PG/MG gelten als nichtfluechtig; Entnahmen und Verschleppung sind nicht korrigiert.",
+      "Der eingegebene Gesamtverlust vor Messbeginn wird genau einmal als Anfangskorrektur angesetzt; seine Dauer wird nicht aus den Messdaten abgeleitet.",
+      "Rezepturzugaben werden am ersten Rohzeitstempel der neuen Rezeptur eingebucht; der reale Zugabezeitpunkt in einer Pause ist unbekannt.",
+      "Ungemessene Zeiten (auch ausgeschlossene Randpunkte/zu kurze Phasen) werden separat geschaetzt.",
+      "previous setzt die letzte Segmentrate des letzten erfolgreichen Fits fort; bis dahin gilt gap-rate.",
+      "IPA/Wasser-Anteile ungemessener Verluste sind Annahmen. Ohne Vorgabe gilt der aktuelle IPA-Anteil am IPA/Wasser-Vorrat, kein Dampfdruckmodell.",
+      "Jede Phase hat eigene Sensoroffsets. Spruenge zwischen Rezepturen identifizieren deshalb keinen eindeutigen Pausenverlust.",
+      "Phasen-Bootstrap ist bedingt auf die uebernommene Startmasse. Unsicherheit vorheriger Fits, Pausen und Vorverlust wird NICHT propagiert; kein Gesamt-Konfidenzintervall.",
+      "Ratenunterschiede nach Zugaben sind beschreibend, kein kausaler Nachweis eines Zusammensetzungseffekts.",
+      "Die Bilanz umfasst die gewaehlte CSV bis zum letzten Rohzeitstempel, nicht automatisch andere Dateien derselben Probe.",
+      "Phase 1: PG density: temperature 23.78 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.79 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.80 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.81 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.82 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.83 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.84 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.85 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.86 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.87 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.88 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.89 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.90 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.91 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.92 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.93 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.94 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.95 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.96 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.97 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.98 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 23.99 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.00 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.01 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.03 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.04 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.05 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.07 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.08 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.09 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.11 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.12 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.14 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.15 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.16 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.17 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.19 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.20 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.21 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.22 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.23 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.24 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.25 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.27 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.29 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.30 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.31 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.33 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.34 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.35 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.37 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.38 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.39 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.40 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.41 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.42 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.43 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.44 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.45 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.46 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.47 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.48 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.49 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.50 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.51 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.52 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.53 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.54 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.55 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.56 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.57 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.58 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.59 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.60 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.61 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.62 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.63 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.64 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.65 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.66 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.67 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.68 C is outside the locally supported temperature range.",
+      "Phase 1: PG density: temperature 24.70 C is outside the locally supported temperature range.",
+      "Phase 1: PG sound: temperature 23.8 C is outside locally supported anchors 25-65 C at 7.4 wt%.",
+      "Phase 1: PG sound: temperature 23.9 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 23.9 C is outside locally supported anchors 25-65 C at 7.4 wt%.",
+      "Phase 1: PG sound: temperature 24.0 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.1 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.2 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.3 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.4 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.5 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.6 C is outside locally supported anchors 25-65 C at 7.3 wt%.",
+      "Phase 1: PG sound: temperature 24.7 C is outside locally supported anchors 25-65 C at 7.3 wt%."
+    ]
+  },
+  "phase_fits": [
+    {
+      "phase": 1,
+      "start_masses_g": [
+        22.0,
+        43.923076250666526,
+        44.0,
+        0.0,
+        1098.0669237493335
+      ],
+      "noise_scales": [
+        0.01,
+        0.05
+      ],
+      "fit": {
+        "mode": "mixed",
+        "params": [
+          0.5381944986692894,
+          1.9294480051015774
+        ],
+        "rates": [
+          [
+            0.5381944986692894
+          ],
+          [
+            1.9294480051015774
+          ]
+        ],
+        "average_rates_g_h": [
+          0.5381944986692894,
+          1.9294480051015777
+        ],
+        "total_rate_g_h": 2.467642503770867,
+        "ipa_mass_fraction_in_loss": 0.21810067619068027,
+        "offset": [
+          -0.4413580389422381,
+          1.9332784181066818
+        ],
+        "rmse": [
+          0.0012887282787910747,
+          0.02404895102842571
+        ],
+        "weighted_sse": 34.96081238295736,
+        "normalized_jacobian_condition": 1.0454248098765013,
+        "sensitivity_correlations": [
+          [
+            1.0000000000000002,
+            0.04439412036507861
+          ],
+          [
+            0.04439412036507861,
+            0.9999999999999989
+          ]
+        ],
+        "boundary_parameters": [],
+        "bootstrap": {
+          "successful": 60,
+          "failed": 0,
+          "block_length_points": 5,
+          "average_rates_ci95_g_h": [
+            [
+              0.5348342974342353,
+              1.8442714950349028
+            ],
+            [
+              0.5425310208857808,
+              2.012541564677389
+            ]
+          ],
+          "ipa_share_ci95": [
+            0.21019099923916734,
+            0.22705377420322811
+          ],
+          "parameters_ci95_g_h": [
+            [
+              0.5348342974342353,
+              1.844271495034903
+            ],
+            [
+              0.5425310208857808,
+              2.012541564677389
+            ]
+          ],
+          "interpretation": "Conditional residual-bootstrap range; not a complete metrological uncertainty. Does not include starting-composition, model, temperature-calibration or weighing uncertainty."
+        }
+      }
+    }
+  ]
+}

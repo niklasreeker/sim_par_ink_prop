@@ -1,0 +1,3 @@
+Phase,Kind,Evidence,Method,Start_UTC,End_UTC,Duration_h,IPA_loss_g,Water_loss_g,Total_loss_g,Segment
+1,pre_measurement_loss,assumed,user_entered_total_loss,2026-09-16T09:24:29.401000+00:00,2026-09-16T09:24:29.401000+00:00,0.0,0.0769237493334732,1.9230762506665269,2.0,
+1,measurement_window,fitted_model,mixed_phase_fit,2026-09-16T09:24:29.401000+00:00,2026-09-16T14:04:29.684000+00:00,4.666745277777777,2.5116166351908844,9.00424236652554,11.515859001716425,1.0

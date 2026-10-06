@@ -1,0 +1,58 @@
+{
+  "instant_water_IPA_ratio_fitted": 3.556079617579477,
+  "instant_water_fraction_fitted": 0.7805130542184702,
+  "fitted_IPA_rate_g_h": 0.5173354160626894,
+  "fitted_Water_rate_g_h": 1.839685928512528,
+  "fitted_total_rate_g_h": 2.3570213445752173,
+  "critical_heating_rate_C_h_range": [
+    0.16458713006339354,
+    0.17502515415836076
+  ],
+  "critical_heating_rate_at_raw_min_C_h": 0.1686492621639816,
+  "isothermal_critical_ratio_at_raw_min": 17.897008315337345,
+  "chemical_C_rate_at_raw_min_m_s_h": -0.2924442316486182,
+  "CT_at_raw_min_m_s_K": 1.7340380141376954,
+  "isothermal_C_model_change_m_s": -1.3539187678579765,
+  "IDW_derivative_neighbor_changes": 0,
+  "smoothing_sensitivity": [
+    {
+      "half_window_min": 10,
+      "observed_slope_zero_local": "2026-09-16T13:45:01.974972975+02:00",
+      "model_balance_zero_local": "2026-09-16T13:45:21.557805776+02:00",
+      "all_observed_negative_to_positive_crossings_local": [
+        "2026-09-16T13:18:48.761603785+02:00",
+        "2026-09-16T13:45:01.974972975+02:00",
+        "2026-09-16T14:30:29.588647984+02:00"
+      ],
+      "all_model_negative_to_positive_crossings_local": [
+        "2026-09-16T13:19:15.948885349+02:00",
+        "2026-09-16T13:45:21.557805776+02:00",
+        "2026-09-16T14:31:06.730177673+02:00"
+      ]
+    },
+    {
+      "half_window_min": 20,
+      "observed_slope_zero_local": "2026-09-16T13:39:09.822385715+02:00",
+      "model_balance_zero_local": "2026-09-16T13:38:10.078266747+02:00",
+      "all_observed_negative_to_positive_crossings_local": [
+        "2026-09-16T13:17:04.113792741+02:00",
+        "2026-09-16T13:39:09.822385715+02:00"
+      ],
+      "all_model_negative_to_positive_crossings_local": [
+        "2026-09-16T13:17:00.278032895+02:00",
+        "2026-09-16T13:38:10.078266747+02:00"
+      ]
+    },
+    {
+      "half_window_min": 30,
+      "observed_slope_zero_local": "2026-09-16T13:30:38.717342339+02:00",
+      "model_balance_zero_local": "2026-09-16T13:29:55.780516037+02:00",
+      "all_observed_negative_to_positive_crossings_local": [
+        "2026-09-16T13:30:38.717342339+02:00"
+      ],
+      "all_model_negative_to_positive_crossings_local": [
+        "2026-09-16T13:29:55.780516037+02:00"
+      ]
+    }
+  ]
+}

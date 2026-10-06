@@ -1,0 +1,68 @@
+{
+  "all_checks_passed": true,
+  "checks": {
+    "physics_chain_rule": true,
+    "physics_scale_invariance": true,
+    "hybrid_chain_rule": true,
+    "hybrid_scale_invariance": true,
+    "all_nodes_chain_rule": true,
+    "all_nodes_scale_invariance": true,
+    "derivative_step_convergence": true,
+    "minimum_17.65": true,
+    "minimum_17.7": true,
+    "minimum_17.71": true,
+    "path_percentages_sum_to_100": true,
+    "remaining_masses_positive": true,
+    "retained_Al_PG_MG_masses": true,
+    "path_loss_conservation": true,
+    "map_derivative_signs": true,
+    "sample12_balance_terms": true,
+    "sample12_thermal_threshold": true,
+    "fingerprint_calculator_sha256": true,
+    "fingerprint_field_sha256": true,
+    "fingerprint_sample_field_sha256": true,
+    "fingerprint_measurement_source_sha256": true,
+    "fingerprint_script_sha256": true,
+    "seven_images_and_PDFs": true,
+    "report_local_links": true
+  },
+  "details": {
+    "physics": {
+      "maximum_chain_rule_error": 2.3679262994846795e-09,
+      "critical_ratio": 17.717653496621963
+    },
+    "hybrid": {
+      "maximum_chain_rule_error": 1.069520294549875e-08,
+      "critical_ratio": 17.367270431806585
+    },
+    "all_nodes": {
+      "maximum_chain_rule_error": 8.050005817494821e-08,
+      "critical_ratio": 18.478110384724392
+    },
+    "critical_ratio_step_spreads": {
+      "all_nodes": 1.8627734359455417e-05,
+      "hybrid": 4.899835937521857e-05,
+      "physics": 4.406283938607203e-06
+    },
+    "roots": [
+      {
+        "ratio": 17.65,
+        "slope_before_m_s_g": -2.5043846108019352e-05,
+        "slope_after_m_s_g": 2.5357962840644177e-05,
+        "refined_root_difference_g": -3.2857477805237068e-06
+      },
+      {
+        "ratio": 17.7,
+        "slope_before_m_s_g": -8.406686902162619e-06,
+        "slope_after_m_s_g": 8.508550308761187e-06,
+        "refined_root_difference_g": -2.075790028754909e-06
+      },
+      {
+        "ratio": 17.71,
+        "slope_before_m_s_g": -5.6588760344311595e-06,
+        "slope_after_m_s_g": 5.728111318603624e-06,
+        "refined_root_difference_g": 7.699227637658623e-07
+      }
+    ]
+  }
+}
