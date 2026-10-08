@@ -1,0 +1,12 @@
+{
+  "date": "2026-10-07",
+  "source_sha256": "e8a66c2f6d3ff56e191dec5e6403fa206377b365267c6e3ac6a07634d3253705",
+  "script_sha256": "0d977cdc6f44e52299466ac622e6e14b296500a281cfc0f2b474b19e2e48352a",
+  "checks": {
+    "finite_positive_selectivities": true,
+    "late_selectivity_smaller_in_each_variant": true,
+    "hypothetical_humidities_in_0_100": true
+  },
+  "caution": "No humidity measurements; humidity scenarios are hypothetical and conditional on strong simplifying assumptions",
+  "lambda_definition": "(R_IPA/R_W)/(w_IPA/w_W), integrated over intervals of constant apparent lambda"
+}
