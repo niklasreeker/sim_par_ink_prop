@@ -1,0 +1,189 @@
+{
+  "sensors": {
+    "density": 1005.17,
+    "sound": 1554.7,
+    "temperature": 24.64
+  },
+  "search": {
+    "al_min": 0.0,
+    "al_max": 32.0,
+    "ipa_min": 0.0,
+    "ipa_max": 100.0,
+    "pg_per_al": 2.0,
+    "mg_per_al": 0.125,
+    "rho_tolerance": 0.0001,
+    "sound_tolerance": 0.0001,
+    "max_evaluations": 250
+  },
+  "calibration_field": "C:\\dev\\masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+  "source_sha256": {
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\ink_calculator.py": "0b839d39e90669c6d0c33f2516b193e4c0a279dcc7bc8ec69def32ae5e15791f",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_density.csv": "c7224497d6d01df048d9992fb3f48ba143487a40419dc578d640096cce969260",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_density_ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_density.csv": "8d384cf1fa88efa7408ad2cc7572d0bfb30827d50df3b001df78f4955df3f8cb",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_density_ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound.csv": "0fae9694ce98953e7b101e4bbd1b79816c517521c5f7b78282bea42ea8ad06da",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound_Claude.csv": "607f3874e3ea3b111dacd2fb6b7bd8035ea6710d52278b500d1d217b4e77602b",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_viscosity.csv": "84d584388e04f1ec1ab121c952af9acf5ef1ec020865123e67e3b072328923f8",
+    "C:\\dev\\masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json": "5f08a5c244f8174a360f9fd2ab9e6ee47567aafa60f7cdf0551f5d3db7b2663e"
+  },
+  "models": {
+    "physics": {
+      "status": "multiple_matches",
+      "solutions": [
+        {
+          "composition": {
+            "Al": 1.9666462035232297,
+            "IPA": 4.818330692023744,
+            "PG": 3.9332924070464594,
+            "MG": 0.24583077544040371,
+            "Water": 89.03589992196615
+          },
+          "density": 1005.1699999999998,
+          "sound": 1554.7,
+          "density_difference": -1.1368683772161603e-13,
+          "sound_difference": 0.0,
+          "physics_density": 1005.1699999999998,
+          "physics_sound": 1554.7,
+          "correction_density": 0.0,
+          "correction_sound": 0.0,
+          "correction_density_spread": 0.0,
+          "correction_sound_spread": 0.0,
+          "outside_axes": [],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1368683772161603e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1005.1699999999998,
+          "base_model_sound": 1554.7,
+          "offset_corrected_sensor_density": 1005.17,
+          "offset_corrected_sensor_sound": 1554.7
+        },
+        {
+          "composition": {
+            "Al": 5.6373532075752895,
+            "IPA": 20.698154643185788,
+            "PG": 11.274706415150579,
+            "MG": 0.7046691509469112,
+            "Water": 61.685116583141436
+          },
+          "density": 1005.1699999999998,
+          "sound": 1554.7,
+          "density_difference": -1.1368683772161603e-13,
+          "sound_difference": 0.0,
+          "physics_density": 1005.1699999999998,
+          "physics_sound": 1554.7,
+          "correction_density": 0.0,
+          "correction_sound": 0.0,
+          "correction_density_spread": 0.0,
+          "correction_sound_spread": 0.0,
+          "outside_axes": [],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1368683772161603e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1005.1699999999998,
+          "base_model_sound": 1554.7,
+          "offset_corrected_sensor_density": 1005.17,
+          "offset_corrected_sensor_sound": 1554.7
+        }
+      ],
+      "best_approximation": null,
+      "starts_tried": 87,
+      "starts_with_result": 87,
+      "failed_starts": 0,
+      "model_messages": [],
+      "search_complete_proof": false
+    },
+    "hybrid": {
+      "status": "multiple_matches",
+      "solutions": [
+        {
+          "composition": {
+            "Al": 1.944386651740763,
+            "IPA": 4.440811730453902,
+            "PG": 3.888773303481526,
+            "MG": 0.24304833146759539,
+            "Water": 89.48297998285622
+          },
+          "density": 1005.17,
+          "sound": 1554.7,
+          "density_difference": 0.0,
+          "sound_difference": 0.0,
+          "physics_density": 1005.5802780555488,
+          "physics_sound": 1551.2665736477782,
+          "correction_density": -0.41027805554876373,
+          "correction_sound": 3.4334263522218724,
+          "correction_density_spread": 0.032068227043791864,
+          "correction_sound_spread": 0.14928328759215242,
+          "outside_axes": [
+            "MG"
+          ],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 0.0,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1005.17,
+          "base_model_sound": 1554.7,
+          "offset_corrected_sensor_density": 1005.17,
+          "offset_corrected_sensor_sound": 1554.7
+        },
+        {
+          "composition": {
+            "Al": 5.791144175034728,
+            "IPA": 20.958298700164185,
+            "PG": 11.582288350069456,
+            "MG": 0.723893021879341,
+            "Water": 60.94437575285228
+          },
+          "density": 1005.1700000000001,
+          "sound": 1554.7,
+          "density_difference": 1.1368683772161603e-13,
+          "sound_difference": 0.0,
+          "physics_density": 1005.6471835445526,
+          "physics_sound": 1551.403547624619,
+          "correction_density": -0.4771835445525742,
+          "correction_sound": 3.2964523753810533,
+          "correction_density_spread": 0.12227333813175593,
+          "correction_sound_spread": 0.46403865889570856,
+          "outside_axes": [
+            "Al",
+            "IPA",
+            "PG",
+            "MG"
+          ],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1368683772161603e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1005.1700000000001,
+          "base_model_sound": 1554.7,
+          "offset_corrected_sensor_density": 1005.17,
+          "offset_corrected_sensor_sound": 1554.7
+        }
+      ],
+      "best_approximation": null,
+      "starts_tried": 113,
+      "starts_with_result": 113,
+      "failed_starts": 0,
+      "model_messages": [],
+      "search_complete_proof": false
+    }
+  },
+  "units": {
+    "composition": "wt-%",
+    "density": "kg/m3",
+    "sound": "m/s",
+    "temperature": "deg C"
+  },
+  "numerical_tolerance_is_measurement_uncertainty": false
+}
