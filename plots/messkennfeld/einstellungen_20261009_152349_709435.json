@@ -1,0 +1,63 @@
+{
+  "settings": {
+    "model": "both",
+    "al_min": 1.0,
+    "al_max": 2.5,
+    "ipa_min": 0.0,
+    "ipa_max": 4.0,
+    "temperature": 25.0,
+    "pg_per_al": 2.0,
+    "mg_per_al": 0.125,
+    "lines": 7,
+    "points": 151
+  },
+  "repository": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop",
+  "calibration_field": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211\\calibration_field.json",
+  "calibration_interpolation": {
+    "method": "scaled_gaussian_kernel_regression",
+    "bandwidth": 0.3,
+    "node_selection": "all",
+    "quality_weighting": "fixed_inverse_squared_standard_error",
+    "quality_floor_fraction": 0.25,
+    "quality_absolute_floor": 1e-09,
+    "uncertainty_kind": "weighted_residual_spread_plus_node_variance",
+    "centre": [
+      1.8698574592050647,
+      3.6750891978164355,
+      4.433347546066973,
+      0.0
+    ],
+    "scale": [
+      0.6282539971049199,
+      2.509314029729215,
+      2.2310200843980654,
+      1.0
+    ]
+  },
+  "source_sha256": {
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\ink_calculator.py": "cc8fb9bf7c9c1c018a266fd8e6dd1287c63ce28dadd41ffebef75a63120b43b8",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_density.csv": "35547d43bd0c1c424a8020b26bd3d88821901ded85bd41805b4bd4cdcd338961",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_density_Ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_density.csv": "4866e0b39c3cbf8e49f2c7f4a91396ba027a742f3c8cfc99eee9e6cbea3d113f",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_density_Ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound.csv": "ea6127ca847d1d2714fe237c7dca9db0fd208c5f09ff50953e56f9bbb1d27dd7",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound_claude.csv": "caa95f6a2ee8177f495ba382681756c2d0f04696a4000b52fb0a31e2423560c7",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_viscosity.csv": "8ecde964d39204748e897f86b4c930407f3495b3fa6a425c9cbffdee38066ee0",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211\\calibration_field.json": "bcafc13e480173b62273e4dd02bacdaccce49103a5055c0c5dc6705352beb049"
+  },
+  "unique_compositions": 2093,
+  "outside_axis_counts": {
+    "Al": 1208,
+    "IPA": 1483,
+    "PG": 920,
+    "MG": 2093
+  },
+  "model_warnings": [],
+  "correction": "physics(T,w) + A(w)",
+  "uncertainty_note": "A_*_Uncertainty beschreibt die Streuung der Kalibrierkorrektur, nicht die gesamte Messunsicherheit."
+}

@@ -1,0 +1,2487 @@
+#!/usr/bin/env python3
+"""Build and use a smooth Gaussian-kernel residual calibration field.
+
+The hybrid measurement model is
+
+    y_hybrid(w, T) = y_physics(w, T) + calibration_strength * A(w)
+
+with separate residual fields for density and sound velocity.  Evaporation is
+not learned as part of A(w).  Instead, the script reconstructs the effective
+composition at every timestamp before calculating the residual.
+
+Gaussian kernel regression
+--------------------------
+Every prediction uses all residual nodes, with no nearest-neighbor cutoff and
+no exact-node override. For the range-scaled composition distance d_i,
+
+    g_i(w) = exp(-d_i(w)**2 / (2 * bandwidth**2))
+    A(w)   = sum(g_i(w) * q_i * A_i) / sum(g_i(w) * q_i)
+
+The positive quality weights q_i are fixed per output using the standard
+errors of ALL nodes. They do not change with the query composition.
+This yields an infinitely differentiable correction for any fixed positive
+bandwidth. Individual calibration values are generally not matched exactly.
+The unscaled correction remains within the observed residual range for each output.
+These guarantees concern A(w); the physics model has its own smoothness.
+
+Use --bandwidth to control smoothing: smaller values retain more local detail;
+larger values blend more nodes. The default 0.30 is a starting value in scaled
+composition coordinates, not a validated optimum. Select a suitable value
+using held-out samples or experiments. Constant composition axes cannot teach
+an effect in that direction. Predictions outside the sampled region remain
+extrapolations, even though the mathematical correction is smooth there.
+
+The reported uncertainty is weighted residual spread plus node measurement
+variance. It is a diagnostic, not a calibrated confidence interval, and does
+not include evaporation-model or physics-model uncertainty.
+
+Use --calibration-strength between 0 and 1 to control how much correction is
+applied: 0 uses physics only, 0.5 applies half the correction, and 1 applies
+the full correction. Build saves this setting in the model (default: 1).
+Predict and evaluate use the saved value unless explicitly overridden.
+Residual nodes and their standard errors stay unscaled, so changing strength
+never changes the learned field or its quality weights. Applied corrections
+and their diagnostic uncertainties are scaled exactly once. Raw field values
+are exported separately. Build diagnostics show unscaled observed residuals.
+Older Gaussian models without this setting use 1.
+
+Current evaporation model
+-------------------------
+The independently evaluated mass loss is split into 34 wt-% water and
+66 wt-% IPA.  For cumulative losses E_IPA(t) and E_Water(t),
+
+    m_IPA,eff(t)   = m_IPA,nominal(t)   - E_IPA(t)
+    m_Water,eff(t) = m_Water,nominal(t) - E_Water(t)
+    m_total,eff(t) = m_total,nominal(t) - E_IPA(t) - E_Water(t)
+
+and all mass percentages, including methyl gallate (MG), are recalculated.
+SL120 is interpreted as 20 wt-% Al, 40 wt-% IPA and 40 wt-% PG. MG is read
+from the ``m_MG`` column and is assumed not to evaporate.
+
+Evaporation starts when the ink is first stirred, not at the first measurement.
+The total rate is obtained from a documented, piecewise-constant RPM history.
+It uses the gravimetric anchors 1.82 g/h at low circulation, 1.89 g/h at
+400 rpm and 2.72 g/h at 600 rpm, with linear interpolation between anchors.
+Undocumented periods use the independently determined robust mixed-condition
+rate of 2.281 g/h and remain explicitly labelled as such in every output.
+
+The built-in protocol contains the laboratory notes for samples 3--11 and
+both days of sample 102.  Future or corrected protocols can be provided as a
+JSON file via ``--evaporation-protocol``; entries with the same sample/date
+replace the built-in entry.  Missing protocols fail loudly so a field cannot
+silently be built without pre-measurement evaporation.
+
+The saved JSON file is portable and contains the residual nodes, kernel settings,
+quality information, evaporation settings and fingerprints of the calculator
+and parameter tables.  It can be loaded by the ``predict`` and ``evaluate``
+subcommands or by another Python project.
+
+Examples
+--------
+Build a field from the documented samples::
+
+    python residual_calibration_field_gaussian_kernel_regression.py build \
+      --input measurement_data \
+      --samples 3 4 5 6 7 8 9 10 11 102 --bandwidth 0.30 \
+      --calibration-strength 0.5
+
+Build with an updated external protocol::
+
+    python residual_calibration_field_gaussian_kernel_regression.py build \
+      --input measurements.csv --samples 9 10 11 \
+      --evaporation-protocol evaporation_protocol.json
+
+Predict one point::
+
+    python residual_calibration_field_gaussian_kernel_regression.py predict \
+      --model results/calibration_field_gaussian_kernel_regression/<run>/calibration_field.json \
+      --al 1.8 --ipa 4.0 --pg 4.5 --mg 0.227 --temperature 23.0
+
+Evaluate a saved field against another CSV::
+
+    python residual_calibration_field_gaussian_kernel_regression.py evaluate \
+      --model results/calibration_field_gaussian_kernel_regression/<run>/calibration_field.json \
+      --input new_measurements.csv --samples 9 10 11
+
+The signed calibration residual always uses ``measurement - physics`` so it
+can be added directly to the InkCalculator result.
+
+Output folders are automatic and never requested interactively:
+    results/calibration_field_gaussian_kernel_regression/<run>/
+    results/calibrated_model_evaluation_gaussian_kernel_regression/<run>/
+Open evaluation_report.html for the phase-averaged graphical comparison.
+Detailed rows remain available for auditing. Water/air reference rows are
+saved separately and do not become ink calibration points.
+Only models explicitly marked as Gaussian kernel regression are accepted.
+Input column names such as m_Wasser and ProbeNr retain the measurement-file
+schema; all documentation, comments, prompts and report prose are in English.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import html
+import importlib.util
+import inspect
+import json
+import math
+import re
+import sys
+import warnings
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+from zoneinfo import ZoneInfo
+
+from measurement_data.measurement_files import discover_measurement_files
+from measurement_data.measurement_time import measurement_timestamps_utc
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_DIR = SCRIPT_DIR.parent
+SCRIPT_VERSION = "1.1-gaussian-kernel-regression"
+INTERPOLATION_METHOD = "scaled_gaussian_kernel_regression"
+DEFAULT_BANDWIDTH = 0.30
+DEFAULT_INPUT = SCRIPT_DIR / "measurement_data"
+CALIBRATION_ROOT = SCRIPT_DIR / "results" / "calibration_field_gaussian_kernel_regression"
+EVALUATION_ROOT = SCRIPT_DIR / "results" / "calibrated_model_evaluation_gaussian_kernel_regression"
+DEFAULT_TABLES = REPO_DIR / "tables_parameters"
+DEFAULT_CALCULATOR = REPO_DIR / "ink_calculator.py"
+
+SL120 = {"Al": 0.20, "IPA": 0.40, "PG": 0.40}
+LOCAL_TIMEZONE = "Europe/Berlin"
+IPA_EVAPORATION_SHARE = 0.66
+WATER_EVAPORATION_SHARE = 0.34
+UNDOCUMENTED_TOTAL_RATE_G_H = 2.281
+RPM_RATE_ANCHORS = (
+    (0.0, 1.82),
+    (180.0, 1.82),
+    (400.0, 1.89),
+    (600.0, 2.72),
+)
+
+# Times are local laboratory time (Europe/Berlin).  Each change remains active
+# until the next change.  A ``total_rate_g_h`` entry is used only where the RPM
+# was not documented.  These entries are deliberately kept in the script so a
+# single returned file is reproducible; --evaporation-protocol can override or
+# extend them without changing source code.
+BUILTIN_EVAPORATION_PROTOCOL: dict[str, Any] = {
+    "timezone": LOCAL_TIMEZONE,
+    "experiments": [
+        {
+            "probe": 3,
+            "date": "2026-08-21",
+            "stirring_start": "10:50",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "note": "45 min pre-stirring; RPM not documented",
+        },
+        {
+            "probe": 4,
+            "date": "2026-08-27",
+            "stirring_start": "09:11",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "note": "60 min stirring plus 10 min pumping; RPM not documented",
+        },
+        {
+            "probe": 5,
+            "date": "2026-08-28",
+            "stirring_start": "11:22",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "schedule": [{"time": "12:54", "rpm": 374}],
+            "note": "45 min stirring plus 4 min pumping; later 374 rpm",
+        },
+        {
+            "probe": 6,
+            "date": "2026-09-01",
+            "stirring_start": "12:58",
+            "default_rpm": 400,
+            "schedule": [
+                {"time": "12:58", "rpm": 600},
+                {"time": "14:08", "rpm": 400},
+            ],
+            "note": "70 min at 600 rpm, measurement at 400 rpm",
+        },
+        {
+            "probe": 7,
+            "date": "2026-09-01",
+            "stirring_start": "12:44",
+            "default_rpm": 400,
+            "schedule": [
+                {"time": "12:44", "rpm": 500},
+                {"time": "13:54", "rpm": 400},
+            ],
+            "note": "70 min at 500 rpm, measurement at 400 rpm",
+        },
+        {
+            "probe": 8,
+            "date": "2026-09-02",
+            "stirring_start": "10:41",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "schedule": [
+                {"time": "10:41", "rpm": 600},
+                {"time": "11:51", "total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H},
+            ],
+            "note": "70 min at 600 rpm; later RPM not documented",
+        },
+        {
+            "probe": 9,
+            "date": "2026-09-07",
+            "stirring_start": "09:30",
+            "default_rpm": 181,
+            "schedule": [
+                {"time": "09:30", "rpm": 600},
+                {"time": "11:00", "rpm": 138},
+                {"time": "11:41", "rpm": 500},
+                {"time": "11:47", "rpm": 181},
+                {"time": "13:13", "rpm": 580},
+                {"time": "14:22", "rpm": 181},
+            ],
+            "note": "RPM changes reconstructed from the laboratory diary",
+        },
+        {
+            "probe": 10,
+            "date": "2026-09-08",
+            "stirring_start": "09:00",
+            "default_rpm": 180,
+            "schedule": [
+                {"time": "09:00", "rpm": 600},
+                {"time": "10:20", "rpm": 180},
+                {"time": "10:48", "rpm": 500},
+                {"time": "10:55", "rpm": 170},
+                {"time": "11:49", "rpm": 180},
+                {"time": "12:18", "rpm": 170},
+                {"time": "12:57", "rpm": 600},
+                {"time": "14:13", "rpm": 170},
+                {"time": "14:45", "rpm": 180},
+            ],
+            "note": "RPM changes reconstructed from the laboratory diary",
+        },
+        {
+            "probe": 11,
+            "date": "2026-09-09",
+            "stirring_start": "09:05",
+            "default_rpm": 180,
+            "schedule": [
+                {"time": "09:05", "rpm": 600},
+                {"time": "10:18", "rpm": 180},
+                {"time": "12:18", "rpm": 550},
+                {"time": "13:30", "rpm": 180},
+            ],
+            "note": "RPM changes reconstructed from the laboratory diary",
+        },
+        {
+            "probe": 102,
+            "date": "2026-09-01",
+            "stirring_start": "10:36",
+            "default_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+            "note": "60 min pre-stirring; RPM not documented",
+        },
+        {
+            "probe": 102,
+            "date": "2026-09-02",
+            "stirring_start": "10:44",
+            "default_rpm": 400,
+            "note": "45 min pre-stirring at 400 rpm",
+        },
+    ],
+}
+MASS_COLUMNS = ["m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"]
+MEASUREMENT_COLUMNS = ["Rho_M", "C_M", "T_M"]
+COMPOSITION_COLUMNS = [
+    "Al_wt_pct_eff",
+    "IPA_wt_pct_eff",
+    "PG_wt_pct_eff",
+    "MG_wt_pct_eff",
+]
+FIELD_AXES = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct"]
+LEGACY_FIELD_AXES = ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct"]
+
+
+def finite_float(value: str) -> float:
+    number = float(value)
+    if not np.isfinite(number):
+        raise argparse.ArgumentTypeError("Value must be finite.")
+    return number
+
+
+def non_negative_float(value: str) -> float:
+    number = finite_float(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("Value must be greater than or equal to zero.")
+    return number
+
+
+def positive_float(value: str) -> float:
+    number = finite_float(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("Value must be greater than zero.")
+    return number
+
+
+def strength_float(value: str) -> float:
+    number = finite_float(value)
+    if not 0.0 <= number <= 1.0:
+        raise argparse.ArgumentTypeError("Calibration strength must be between 0 and 1.")
+    return number
+
+
+def parse_sample_tokens(tokens: list[str] | None) -> set[int] | None:
+    if not tokens:
+        return None
+    flattened: list[str] = []
+    for token in tokens:
+        flattened.extend(part.strip() for part in str(token).split(","))
+    if any(token.lower() == "all" for token in flattened):
+        return None
+    try:
+        return {int(token) for token in flattened if token}
+    except ValueError as exc:
+        raise ValueError("--samples must contain integers or 'all'.") from exc
+
+
+def add_common_calculator_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--calculator",
+        type=Path,
+        default=DEFAULT_CALCULATOR,
+        help="Path to ink_calculator.py (default: repository root).",
+    )
+    parser.add_argument(
+        "--tables",
+        type=Path,
+        default=DEFAULT_TABLES,
+        help="Path to tables_parameters (default: repository tables_parameters).",
+    )
+
+
+def add_input_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--input",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="One or more measurement CSV files or directories containing CSV files.",
+    )
+    parser.add_argument(
+        "--samples",
+        nargs="+",
+        default=["all"],
+        help="ProbeNr values, separated by spaces or commas; use 'all' for all samples.",
+    )
+    parser.add_argument("--date-column", default="Date")
+    parser.add_argument("--time-column", default="UTC Time", help="Time column; German local time is detected automatically.")
+    parser.add_argument(
+        "--phase-gap-min",
+        type=non_negative_float,
+        default=60.0,
+        help="Start a new phase after a larger time gap (default: 60 min).",
+    )
+
+
+def add_evaporation_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--evaporation-protocol",
+        type=Path,
+        help=(
+            "Optional JSON protocol. Entries are keyed by probe/date and replace "
+            "the built-in laboratory diary entries."
+        ),
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Build, use and evaluate a smooth Gaussian-kernel residual ink field."
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    build = subparsers.add_parser("build", help="Build and save a calibration field.")
+    add_input_arguments(build)
+    add_common_calculator_arguments(build)
+    add_evaporation_arguments(build)
+    build.add_argument(
+        "--quality-mode",
+        choices=["auto", "flags", "low-noise", "all"],
+        default="auto",
+        help="Measurement selection strategy (default: auto).",
+    )
+    build.add_argument(
+        "--minimum-points-per-phase",
+        type=int,
+        default=5,
+        help="Minimum preferred calibration points per phase (default: 5).",
+    )
+    build.add_argument(
+        "--settling-fraction",
+        type=float,
+        default=0.30,
+        help="Fraction at the beginning of a phase excluded by low-noise fallback.",
+    )
+    build.add_argument(
+        "--low-noise-keep-fraction",
+        type=float,
+        default=0.60,
+        help="Fraction of late low-noise candidates retained (default: 0.60).",
+    )
+    build.add_argument(
+        "--bandwidth",
+        type=positive_float,
+        default=DEFAULT_BANDWIDTH,
+        help=("Gaussian bandwidth in range-scaled composition coordinates "
+              "(default: 0.30, an unvalidated starting value). Larger values "
+              "give stronger smoothing; all nodes are always used."),
+    )
+    build.add_argument("--calibration-strength", type=strength_float, default=1.0,
+                       help="Saved correction strength: 0 = physics only, 1 = full correction (default: 1).")
+
+    predict = subparsers.add_parser("predict", help="Predict a single composition.")
+    predict.add_argument("--model", type=Path, required=True)
+    add_common_calculator_arguments(predict)
+    predict.add_argument("--al", type=finite_float, required=True)
+    predict.add_argument("--ipa", type=finite_float, required=True)
+    predict.add_argument("--pg", type=finite_float, required=True)
+    predict.add_argument(
+        "--mg",
+        type=finite_float,
+        default=0.0,
+        help="Methyl gallate mass percentage (default: 0).",
+    )
+    predict.add_argument("--temperature", type=finite_float, required=True)
+    predict.add_argument("--calibration-strength", type=strength_float,
+                         help="Override the saved correction strength for this prediction (0 to 1).")
+    predict.add_argument(
+        "--json", action="store_true", help="Print the prediction as JSON."
+    )
+
+    evaluate = subparsers.add_parser(
+        "evaluate", help="Evaluate physics and hybrid predictions against another CSV."
+    )
+    evaluate.add_argument("--model", type=Path, required=True)
+    add_input_arguments(evaluate)
+    add_common_calculator_arguments(evaluate)
+    add_evaporation_arguments(evaluate)
+    evaluate.add_argument("--quality-mode", choices=["auto", "flags", "low-noise", "all"],
+                          default="auto", help="Phase summary selection (default: auto).")
+    evaluate.add_argument("--minimum-points-per-phase", type=int, default=5)
+    evaluate.add_argument("--settling-fraction", type=float, default=0.30)
+    evaluate.add_argument("--low-noise-keep-fraction", type=float, default=0.60)
+    evaluate.add_argument("--calibration-strength", type=strength_float,
+                          help="Override the saved correction strength for this evaluation (0 to 1).")
+
+    return parser
+
+
+def resolve_csv_files(paths: Iterable[Path]) -> list[Path]:
+    files: list[Path] = []
+    for raw_path in paths:
+        path = raw_path.expanduser().resolve()
+        if path.is_file():
+            files.append(path)
+        elif path.is_dir():
+            files.extend(discover_measurement_files(path))
+        else:
+            raise FileNotFoundError(f"Input path does not exist: {path}")
+    unique = list(dict.fromkeys(files))
+    if not unique:
+        raise FileNotFoundError("No CSV input files were found.")
+    return unique
+
+
+def load_measurements(paths: Iterable[Path]) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for path in resolve_csv_files(paths):
+        frame = pd.read_csv(path, comment="/", skipinitialspace=True, encoding="utf-8-sig")
+        frame.columns = [str(column).strip() for column in frame.columns]
+        if "m_MG" not in frame.columns:
+            frame["m_MG"] = 0.0
+            print(f"Note: {path.name} has no m_MG column; MG was set to 0 g.")
+        frame["Source_File"] = path.name
+        frame["Source_Path"] = str(path)
+        frame["Source_Row"] = np.arange(2, len(frame) + 2)
+        frames.append(frame)
+        print(f"Loaded {path.name}: {len(frame)} rows")
+    return pd.concat(frames, ignore_index=True)
+
+
+def require_columns(df: pd.DataFrame, columns: Iterable[str]) -> None:
+    missing = sorted(set(columns) - set(df.columns))
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+
+
+def filter_samples(df: pd.DataFrame, tokens: list[str] | None) -> pd.DataFrame:
+    require_columns(df, ["ProbeNr"])
+    wanted = parse_sample_tokens(tokens)
+    if wanted is None:
+        return df.copy()
+    result = df[pd.to_numeric(df["ProbeNr"], errors="coerce").isin(wanted)].copy()
+    found = set(pd.to_numeric(result["ProbeNr"], errors="coerce").dropna().astype(int))
+    missing = sorted(wanted - found)
+    if missing:
+        raise ValueError(f"Requested ProbeNr values were not found: {missing}")
+    return result
+
+
+def add_timestamps_and_phases(
+    df: pd.DataFrame, date_column: str, time_column: str, phase_gap_min: float
+) -> pd.DataFrame:
+    result = df.copy()
+    require_columns(result, MASS_COLUMNS + ["ProbeNr", date_column])
+    result["Measurement_Time_UTC"] = measurement_timestamps_utc(result, date_column, time_column)
+    if result["Measurement_Time_UTC"].isna().any():
+        bad = int(result["Measurement_Time_UTC"].isna().sum())
+        raise ValueError(f"Could not parse {bad} measurement timestamps.")
+
+    result["Measurement_Time_Local"] = result["Measurement_Time_UTC"].dt.tz_convert(
+        LOCAL_TIMEZONE
+    )
+    result["Experiment_Date_Local"] = result["Measurement_Time_Local"].dt.strftime(
+        "%Y-%m-%d"
+    )
+
+    for column in MASS_COLUMNS + MEASUREMENT_COLUMNS:
+        if column in result.columns:
+            result[column] = pd.to_numeric(result[column], errors="coerce")
+
+    result["Experiment_Key"] = (
+        result["Source_Path"].astype(str)
+        + "|Probe="
+        + result["ProbeNr"].astype(str)
+        + "|Date="
+        + result["Experiment_Date_Local"]
+    )
+    result["Phase"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
+    result["Experiment_Elapsed_h"] = np.nan
+    result["Phase_Elapsed_h"] = np.nan
+
+    for _, indexes in result.groupby("Experiment_Key", sort=False).groups.items():
+        part = result.loc[indexes].sort_values("Measurement_Time_UTC")
+        first_time = part["Measurement_Time_UTC"].iloc[0]
+        elapsed = (part["Measurement_Time_UTC"] - first_time).dt.total_seconds() / 3600.0
+        gaps = part["Measurement_Time_UTC"].diff().dt.total_seconds() / 60.0
+        recipe_change = part[MASS_COLUMNS].ne(part[MASS_COLUMNS].shift()).any(axis=1)
+        gap_change = gaps.gt(phase_gap_min) if phase_gap_min > 0 else False
+        new_phase = recipe_change | gap_change
+        new_phase.iloc[0] = True
+        phase = new_phase.cumsum().astype(int)
+        phase_start = part.groupby(phase)["Measurement_Time_UTC"].transform("min")
+        phase_elapsed = (
+            part["Measurement_Time_UTC"] - phase_start
+        ).dt.total_seconds() / 3600.0
+        result.loc[part.index, "Experiment_Elapsed_h"] = elapsed.to_numpy()
+        result.loc[part.index, "Phase_Elapsed_h"] = phase_elapsed.to_numpy()
+        result.loc[part.index, "Phase"] = phase.to_numpy()
+
+    return result
+
+
+def add_nominal_component_masses(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    require_columns(result, MASS_COLUMNS)
+    result["m_Al_nom_g"] = SL120["Al"] * result["m_SL120"]
+    result["m_IPA_nom_g"] = SL120["IPA"] * result["m_SL120"] + result["m_IPA"]
+    result["m_PG_nom_g"] = SL120["PG"] * result["m_SL120"] + result["m_PG"]
+    result["m_Water_nom_g"] = result["m_Wasser"]
+    result["m_MG_nom_g"] = result["m_MG"]
+    result["m_Total_nom_g"] = result[MASS_COLUMNS].sum(axis=1, min_count=5)
+    invalid = (
+        result[
+            [
+                "m_Al_nom_g",
+                "m_IPA_nom_g",
+                "m_PG_nom_g",
+                "m_MG_nom_g",
+                "m_Water_nom_g",
+            ]
+        ]
+        .lt(0)
+        .any(axis=1)
+        | ~np.isfinite(result[MASS_COLUMNS]).all(axis=1)
+        | result["m_Total_nom_g"].le(0)
+    )
+    if invalid.any():
+        raise ValueError(f"Found {int(invalid.sum())} rows with invalid component masses.")
+    return result
+
+
+def total_evaporation_rate_from_rpm(rpm: float) -> float:
+    """Piecewise-linear total mass-loss rate from gravimetric RPM anchors."""
+    value = float(rpm)
+    if not np.isfinite(value) or value < 0:
+        raise ValueError(f"RPM must be finite and non-negative, got {rpm!r}.")
+    anchor_rpm = np.asarray([item[0] for item in RPM_RATE_ANCHORS], dtype=float)
+    anchor_rate = np.asarray([item[1] for item in RPM_RATE_ANCHORS], dtype=float)
+    return float(np.interp(value, anchor_rpm, anchor_rate))
+
+
+def _local_timestamp(date_text: str, time_text: str, timezone_name: str) -> pd.Timestamp:
+    try:
+        naive = pd.Timestamp(f"{date_text} {time_text}")
+        return naive.tz_localize(ZoneInfo(timezone_name)).tz_convert("UTC")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Invalid local protocol timestamp: {date_text} {time_text} "
+            f"({timezone_name})."
+        ) from exc
+
+
+def _rate_setting(entry: dict[str, Any], context: str) -> dict[str, Any]:
+    has_rpm = entry.get("rpm") is not None
+    has_rate = entry.get("total_rate_g_h") is not None
+    if has_rpm == has_rate:
+        raise ValueError(
+            f"{context} must contain exactly one of 'rpm' or 'total_rate_g_h'."
+        )
+    if has_rpm:
+        rpm = float(entry["rpm"])
+        return {
+            "rpm": rpm,
+            "rate_g_h": total_evaporation_rate_from_rpm(rpm),
+            "basis": "documented_rpm",
+        }
+    rate = float(entry["total_rate_g_h"])
+    if not np.isfinite(rate) or rate < 0:
+        raise ValueError(f"{context} contains an invalid total_rate_g_h.")
+    return {"rpm": None, "rate_g_h": rate, "basis": "undocumented_rpm_rate"}
+
+
+def _normalise_protocol_entry(
+    entry: dict[str, Any], timezone_name: str, source: str
+) -> dict[str, Any]:
+    try:
+        probe = int(entry["probe"])
+        date_text = str(entry["date"])
+        stirring_start = str(entry["stirring_start"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "Each evaporation experiment needs probe, date and stirring_start."
+        ) from exc
+    datetime.strptime(date_text, "%Y-%m-%d")
+    start_utc = _local_timestamp(date_text, stirring_start, timezone_name)
+
+    default_entry = {
+        "rpm": entry.get("default_rpm"),
+        "total_rate_g_h": entry.get("default_total_rate_g_h"),
+    }
+    default_setting = _rate_setting(
+        default_entry, f"Default evaporation setting for probe {probe} on {date_text}"
+    )
+
+    changes: list[dict[str, Any]] = []
+    for number, raw_change in enumerate(entry.get("schedule", []), start=1):
+        if not isinstance(raw_change, dict) or "time" not in raw_change:
+            raise ValueError(
+                f"Schedule item {number} for probe {probe} on {date_text} needs a time."
+            )
+        setting = _rate_setting(
+            raw_change, f"Schedule item {number} for probe {probe} on {date_text}"
+        )
+        change_time = _local_timestamp(
+            date_text, str(raw_change["time"]), timezone_name
+        )
+        if change_time < start_utc:
+            raise ValueError(
+                f"Schedule item {number} precedes stirring_start for probe {probe} "
+                f"on {date_text}."
+            )
+        changes.append({"time_utc": change_time, **setting})
+    changes.sort(key=lambda item: item["time_utc"])
+    if len({item["time_utc"] for item in changes}) != len(changes):
+        raise ValueError(f"Duplicate schedule times for probe {probe} on {date_text}.")
+    return {
+        "probe": probe,
+        "date": date_text,
+        "stirring_start_utc": start_utc,
+        "default": default_setting,
+        "changes": changes,
+        "note": str(entry.get("note", "")),
+        "source": source,
+        "raw": entry,
+    }
+
+
+def load_evaporation_protocol(
+    path: Path | None,
+) -> tuple[dict[tuple[int, str], dict[str, Any]], dict[str, Any]]:
+    """Load built-in diary entries and optionally replace/add external entries."""
+    timezone_name = str(BUILTIN_EVAPORATION_PROTOCOL["timezone"])
+    merged: dict[tuple[int, str], dict[str, Any]] = {}
+    for raw_entry in BUILTIN_EVAPORATION_PROTOCOL["experiments"]:
+        entry = _normalise_protocol_entry(
+            raw_entry, timezone_name, "built-in laboratory diary"
+        )
+        merged[(entry["probe"], entry["date"])] = entry
+
+    external_path: Path | None = None
+    external_hash: str | None = None
+    if path is not None:
+        external_path = path.expanduser().resolve()
+        if not external_path.is_file():
+            raise FileNotFoundError(f"Evaporation protocol not found: {external_path}")
+        with external_path.open("r", encoding="utf-8") as handle:
+            external = json.load(handle)
+        external_timezone = str(external.get("timezone", timezone_name))
+        if external_timezone != timezone_name:
+            raise ValueError(
+                f"The evaporation protocol timezone must be {timezone_name!r}; "
+                f"got {external_timezone!r}."
+            )
+        experiments = external.get("experiments")
+        if not isinstance(experiments, list) or not experiments:
+            raise ValueError("The evaporation protocol needs a non-empty experiments list.")
+        for raw_entry in experiments:
+            if not isinstance(raw_entry, dict):
+                raise ValueError("Every evaporation protocol entry must be a JSON object.")
+            entry = _normalise_protocol_entry(
+                raw_entry, timezone_name, f"external protocol: {external_path}"
+            )
+            merged[(entry["probe"], entry["date"])] = entry
+        external_hash = sha256_file(external_path)
+
+    manifest = {
+        "timezone": timezone_name,
+        "ipa_mass_fraction": IPA_EVAPORATION_SHARE,
+        "water_mass_fraction": WATER_EVAPORATION_SHARE,
+        "rpm_rate_anchors": [
+            {"rpm": rpm, "total_rate_g_h": rate}
+            for rpm, rate in RPM_RATE_ANCHORS
+        ],
+        "undocumented_total_rate_g_h": UNDOCUMENTED_TOTAL_RATE_G_H,
+        "external_path": str(external_path) if external_path else None,
+        "external_sha256": external_hash,
+        "experiments": [entry["raw"] for entry in merged.values()],
+    }
+    return merged, manifest
+
+
+def _integrate_evaporation(
+    profile: dict[str, Any], target_utc: pd.Timestamp
+) -> dict[str, float | str | None]:
+    start = profile["stirring_start_utc"]
+    if target_utc < start:
+        raise ValueError(
+            f"Measurement at {target_utc} precedes stirring_start {start} for "
+            f"probe {profile['probe']} on {profile['date']}."
+        )
+    setting = profile["default"]
+    cursor = start
+    loss = 0.0
+    documented_h = 0.0
+    rpm_time = 0.0
+    for change in profile["changes"]:
+        change_time = change["time_utc"]
+        if change_time > target_utc:
+            break
+        duration_h = (change_time - cursor).total_seconds() / 3600.0
+        loss += duration_h * setting["rate_g_h"]
+        if setting["rpm"] is not None:
+            documented_h += duration_h
+            rpm_time += duration_h * setting["rpm"]
+        setting = change
+        cursor = change_time
+    duration_h = (target_utc - cursor).total_seconds() / 3600.0
+    loss += duration_h * setting["rate_g_h"]
+    if setting["rpm"] is not None:
+        documented_h += duration_h
+        rpm_time += duration_h * setting["rpm"]
+    elapsed_h = (target_utc - start).total_seconds() / 3600.0
+    return {
+        "total_loss_g": loss,
+        "elapsed_h": elapsed_h,
+        "current_rate_g_h": float(setting["rate_g_h"]),
+        "current_rpm": float(setting["rpm"]) if setting["rpm"] is not None else None,
+        "current_basis": str(setting["basis"]),
+        "rpm_documented_fraction": documented_h / elapsed_h if elapsed_h > 0 else 0.0,
+        "mean_documented_rpm": rpm_time / documented_h if documented_h > 0 else None,
+    }
+
+
+@dataclass
+class EvaporationSummary:
+    experiment_key: str
+    probe: int
+    experiment_date_local: str
+    profile_source: str
+    protocol_note: str
+    stirring_start_utc: str
+    first_measurement_utc: str
+    last_measurement_utc: str
+    pre_measurement_evaporation_h: float
+    total_loss_at_first_g: float
+    total_loss_at_last_g: float
+    ipa_loss_at_last_g: float
+    water_loss_at_last_g: float
+    mean_total_rate_to_last_g_h: float
+    rpm_documented_fraction_to_last: float
+
+
+def apply_evaporation(
+    df: pd.DataFrame, protocols: dict[tuple[int, str], dict[str, Any]]
+) -> tuple[pd.DataFrame, list[EvaporationSummary]]:
+    """Apply pre-measurement and in-run IPA/water evaporation row by row."""
+    result = df.copy()
+    output_columns = {
+        "Evaporation_Profile_Source": "",
+        "Evaporation_Protocol_Note": "",
+        "Stirring_Start_UTC": "",
+        "Evaporation_Elapsed_h": np.nan,
+        "Pre_Measurement_Evaporation_h": np.nan,
+        "Evaporation_Total_Rate_Current_g_h": np.nan,
+        "Stirring_RPM_Current": np.nan,
+        "Evaporation_Rate_Basis_Current": "",
+        "RPM_Documented_Fraction": np.nan,
+        "Mean_Documented_RPM": np.nan,
+        "Total_Evaporation_Loss_g": np.nan,
+    }
+    for column, default in output_columns.items():
+        result[column] = default
+
+    summaries: list[EvaporationSummary] = []
+    missing_profiles: list[str] = []
+    for key, indexes in result.groupby("Experiment_Key", sort=False).groups.items():
+        part = result.loc[indexes].sort_values("Measurement_Time_UTC")
+        probe = int(part["ProbeNr"].iloc[0])
+        date_text = str(part["Experiment_Date_Local"].iloc[0])
+        profile = protocols.get((probe, date_text))
+        if profile is None:
+            missing_profiles.append(f"Probe {probe} on {date_text}")
+            continue
+        first_time = part["Measurement_Time_UTC"].iloc[0]
+        pre_h = (first_time - profile["stirring_start_utc"]).total_seconds() / 3600.0
+        for index, row in part.iterrows():
+            integrated = _integrate_evaporation(profile, row["Measurement_Time_UTC"])
+            values = {
+                "Evaporation_Profile_Source": profile["source"],
+                "Evaporation_Protocol_Note": profile["note"],
+                "Stirring_Start_UTC": str(profile["stirring_start_utc"]),
+                "Evaporation_Elapsed_h": integrated["elapsed_h"],
+                "Pre_Measurement_Evaporation_h": pre_h,
+                "Evaporation_Total_Rate_Current_g_h": integrated["current_rate_g_h"],
+                "Stirring_RPM_Current": integrated["current_rpm"],
+                "Evaporation_Rate_Basis_Current": integrated["current_basis"],
+                "RPM_Documented_Fraction": integrated["rpm_documented_fraction"],
+                "Mean_Documented_RPM": integrated["mean_documented_rpm"],
+                "Total_Evaporation_Loss_g": integrated["total_loss_g"],
+            }
+            for column, value in values.items():
+                result.at[index, column] = value
+        first = result.loc[part.index[0]]
+        last = result.loc[part.index[-1]]
+        elapsed_last = float(last["Evaporation_Elapsed_h"])
+        total_last = float(last["Total_Evaporation_Loss_g"])
+        summaries.append(
+            EvaporationSummary(
+                experiment_key=str(key),
+                probe=probe,
+                experiment_date_local=date_text,
+                profile_source=profile["source"],
+                protocol_note=profile["note"],
+                stirring_start_utc=str(profile["stirring_start_utc"]),
+                first_measurement_utc=str(part["Measurement_Time_UTC"].iloc[0]),
+                last_measurement_utc=str(part["Measurement_Time_UTC"].iloc[-1]),
+                pre_measurement_evaporation_h=pre_h,
+                total_loss_at_first_g=float(first["Total_Evaporation_Loss_g"]),
+                total_loss_at_last_g=total_last,
+                ipa_loss_at_last_g=IPA_EVAPORATION_SHARE * total_last,
+                water_loss_at_last_g=WATER_EVAPORATION_SHARE * total_last,
+                mean_total_rate_to_last_g_h=(
+                    total_last / elapsed_last if elapsed_last > 0 else np.nan
+                ),
+                rpm_documented_fraction_to_last=float(last["RPM_Documented_Fraction"]),
+            )
+        )
+    if missing_profiles:
+        details = ", ".join(sorted(set(missing_profiles)))
+        raise ValueError(
+            "Missing evaporation protocol for "
+            f"{details}. Add a built-in entry or pass --evaporation-protocol."
+        )
+
+    result["IPA_Loss_g"] = (
+        IPA_EVAPORATION_SHARE * result["Total_Evaporation_Loss_g"]
+    )
+    result["Water_Loss_g"] = (
+        WATER_EVAPORATION_SHARE * result["Total_Evaporation_Loss_g"]
+    )
+    invalid_ipa = result["IPA_Loss_g"] > result["m_IPA_nom_g"]
+    invalid_water = result["Water_Loss_g"] > result["m_Water_nom_g"]
+    if invalid_ipa.any() or invalid_water.any():
+        row = result.loc[invalid_ipa | invalid_water].iloc[0]
+        component = "IPA" if bool(invalid_ipa.loc[row.name]) else "water"
+        raise ValueError(
+            f"Cumulative {component} loss exceeds the nominal component mass at "
+            f"{row['Experiment_Key']}, source row {int(row['Source_Row'])}."
+        )
+
+    result["m_IPA_eff_g"] = result["m_IPA_nom_g"] - result["IPA_Loss_g"]
+    result["m_Water_eff_g"] = result["m_Water_nom_g"] - result["Water_Loss_g"]
+    result["m_Total_eff_g"] = (
+        result["m_Total_nom_g"] - result["Total_Evaporation_Loss_g"]
+    )
+    denominator = result["m_Total_eff_g"]
+    result["Al_wt_pct_eff"] = 100.0 * result["m_Al_nom_g"] / denominator
+    result["IPA_wt_pct_eff"] = 100.0 * result["m_IPA_eff_g"] / denominator
+    result["PG_wt_pct_eff"] = 100.0 * result["m_PG_nom_g"] / denominator
+    result["MG_wt_pct_eff"] = 100.0 * result["m_MG_nom_g"] / denominator
+    result["Water_wt_pct_eff"] = 100.0 * result["m_Water_eff_g"] / denominator
+    result["Composition_Sum_wt_pct"] = result[
+        [
+            "Al_wt_pct_eff",
+            "IPA_wt_pct_eff",
+            "PG_wt_pct_eff",
+            "MG_wt_pct_eff",
+            "Water_wt_pct_eff",
+        ]
+    ].sum(axis=1)
+    if not np.allclose(result["Composition_Sum_wt_pct"], 100.0, atol=1e-8):
+        raise RuntimeError("Effective composition does not sum to 100 wt-%.")
+    return result, summaries
+
+
+def sha256_file(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_calculator(calculator_path: Path, tables_dir: Path):
+    calculator_path = calculator_path.expanduser().resolve()
+    tables_dir = tables_dir.expanduser().resolve()
+    if not calculator_path.is_file():
+        raise FileNotFoundError(f"Calculator not found: {calculator_path}")
+    if not tables_dir.is_dir():
+        raise FileNotFoundError(f"Parameter table directory not found: {tables_dir}")
+
+    module_name = f"ink_calculator_calibration_{hash(calculator_path)}"
+    spec = importlib.util.spec_from_file_location(module_name, calculator_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load calculator module: {calculator_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    calculator_class = getattr(module, "InkCalculator", None)
+    if calculator_class is None:
+        raise ImportError(f"InkCalculator class not found in {calculator_path}")
+    calculator = calculator_class(tables_dir=str(tables_dir))
+    for method_name in ("density", "sound_velocity"):
+        method = getattr(calculator, method_name, None)
+        parameters = inspect.signature(method).parameters if method else {}
+        if "mg" not in parameters:
+            raise ImportError(
+                f"{calculator_path.name} does not provide an 'mg' argument in "
+                f"InkCalculator.{method_name}(). Use the MG-enabled calculator."
+            )
+    return calculator
+
+
+def simulate_rows(df: pd.DataFrame, calculator) -> pd.DataFrame:
+    result = df.copy()
+    result["Rho_Physics_kg_m3"] = np.nan
+    result["C_Physics_m_s"] = np.nan
+    result["Simulation_Status"] = "pending"
+    for index, row in result.iterrows():
+        try:
+            arguments = {
+                "al": float(row["Al_wt_pct_eff"]),
+                "ipa": float(row["IPA_wt_pct_eff"]),
+                "pg": float(row["PG_wt_pct_eff"]),
+                "mg": float(row["MG_wt_pct_eff"]),
+                "temperature": float(row["T_M"]),
+            }
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                rho = 1000.0 * float(calculator.density(**arguments))
+                sound = float(calculator.sound_velocity(**arguments))
+            if not np.isfinite(rho) or not np.isfinite(sound):
+                raise ValueError("Calculator returned a non-finite result.")
+            result.at[index, "Rho_Physics_kg_m3"] = rho
+            result.at[index, "C_Physics_m_s"] = sound
+            result.at[index, "Simulation_Status"] = "ok"
+        except Exception as exc:
+            result.at[index, "Simulation_Status"] = (
+                f"error: {type(exc).__name__}: {exc}"
+            )
+    result["A_Rho_kg_m3"] = result["Rho_M"] - result["Rho_Physics_kg_m3"]
+    result["A_C_m_s"] = result["C_M"] - result["C_Physics_m_s"]
+    return result
+
+
+def _safe_numeric(df: pd.DataFrame, column: str, default: float) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(default, index=df.index, dtype=float)
+    return pd.to_numeric(df[column], errors="coerce").fillna(default)
+
+
+def select_calibration_rows(
+    df: pd.DataFrame,
+    quality_mode: str,
+    minimum_points: int,
+    settling_fraction: float,
+    low_noise_keep_fraction: float,
+) -> pd.DataFrame:
+    if minimum_points < 2:
+        raise ValueError("--minimum-points-per-phase must be at least 2.")
+    if not 0 <= settling_fraction < 1:
+        raise ValueError("--settling-fraction must be in [0, 1).")
+    if not 0 < low_noise_keep_fraction <= 1:
+        raise ValueError("--low-noise-keep-fraction must be in (0, 1].")
+
+    result = df.copy()
+    numeric_measurements = result[MEASUREMENT_COLUMNS].apply(pd.to_numeric, errors="coerce")
+    finite = np.isfinite(numeric_measurements).all(axis=1)
+    finite &= result["m_Total_nom_g"].gt(0)
+    finite &= _safe_numeric(result, "N", 1).gt(0)
+    finite &= _safe_numeric(result, "SensOK", 1).eq(1)
+    result["Selected_For_Calibration"] = False
+    result["Selection_Method"] = "not selected"
+
+    group_columns = ["Experiment_Key", "Phase"]
+    for _, indexes in result.groupby(group_columns, sort=False).groups.items():
+        part = result.loc[indexes].sort_values("Measurement_Time_UTC")
+        valid_indexes = part.index[finite.loc[part.index]]
+        if len(valid_indexes) == 0:
+            continue
+
+        flag_mask = finite.loc[part.index].copy()
+        for flag in ("Gueltig", "Stabil"):
+            if flag in result.columns:
+                flag_mask &= _safe_numeric(part, flag, 0).eq(1)
+        flag_indexes = part.index[flag_mask]
+
+        def low_noise_indexes() -> pd.Index:
+            valid_part = part.loc[valid_indexes]
+            cut = int(math.floor(len(valid_part) * settling_fraction))
+            late = valid_part.iloc[cut:]
+            if late.empty:
+                late = valid_part
+            rho_noise = _safe_numeric(late, "Rho_S", np.nan)
+            c_noise = _safe_numeric(late, "C_S", np.nan)
+            rho_scale = float(rho_noise.median()) if rho_noise.notna().any() else 1.0
+            c_scale = float(c_noise.median()) if c_noise.notna().any() else 1.0
+            rho_scale = max(rho_scale, np.finfo(float).eps)
+            c_scale = max(c_scale, np.finfo(float).eps)
+            score = rho_noise.fillna(rho_scale) / rho_scale + c_noise.fillna(c_scale) / c_scale
+            keep = max(minimum_points, int(math.ceil(len(late) * low_noise_keep_fraction)))
+            keep = min(keep, len(late))
+            return score.nsmallest(keep).index
+
+        if quality_mode == "all":
+            chosen, method = valid_indexes, "all finite SensOK rows"
+        elif quality_mode == "flags":
+            chosen, method = flag_indexes, "Gueltig=Stabil=SensOK=1"
+        elif quality_mode == "low-noise":
+            chosen, method = low_noise_indexes(), "settled low-noise fallback"
+        elif len(flag_indexes) >= minimum_points:
+            chosen, method = flag_indexes, "quality flags"
+        else:
+            chosen, method = low_noise_indexes(), "automatic low-noise fallback"
+
+        result.loc[chosen, "Selected_For_Calibration"] = True
+        result.loc[chosen, "Selection_Method"] = method
+
+    if not result["Selected_For_Calibration"].any():
+        raise ValueError("Quality selection did not retain any calibration rows.")
+    return result
+
+
+def _row_uncertainty(df: pd.DataFrame, column: str, floor: float) -> np.ndarray:
+    values = _safe_numeric(df, column, np.nan).to_numpy(float)
+    finite = values[np.isfinite(values) & (values > 0)]
+    replacement = float(np.median(finite)) if finite.size else floor
+    values = np.where(np.isfinite(values) & (values > 0), values, replacement)
+    return np.maximum(values, floor)
+
+
+def robust_location(values: np.ndarray, base_weights: np.ndarray) -> tuple[float, float, float]:
+    values = np.asarray(values, dtype=float)
+    weights = np.asarray(base_weights, dtype=float)
+    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0)
+    values, weights = values[valid], weights[valid]
+    if values.size == 0:
+        return np.nan, np.nan, np.nan
+    centre = float(np.median(values))
+    for _ in range(30):
+        deviations = values - centre
+        scale = 1.4826 * float(np.median(np.abs(deviations)))
+        scale = max(scale, np.std(values) * 0.1, 1e-12)
+        robust = np.ones_like(values)
+        large = np.abs(deviations) > 1.5 * scale
+        robust[large] = 1.5 * scale / np.abs(deviations[large])
+        combined = weights * robust
+        updated = float(np.average(values, weights=combined))
+        if abs(updated - centre) < 1e-10:
+            centre = updated
+            break
+        centre = updated
+    deviations = values - centre
+    robust_sd = 1.4826 * float(np.median(np.abs(deviations)))
+    effective_n = float(weights.sum() ** 2 / np.sum(weights**2))
+    standard_error = robust_sd / math.sqrt(max(effective_n, 1.0))
+    return centre, robust_sd, standard_error
+
+
+def build_nodes(simulated: pd.DataFrame) -> pd.DataFrame:
+    selected = simulated[
+        simulated["Selected_For_Calibration"] & simulated["Simulation_Status"].eq("ok")
+    ].copy()
+    if selected.empty:
+        raise ValueError("No selected rows were simulated successfully.")
+
+    rows: list[dict[str, Any]] = []
+    for (key, phase_number), phase in selected.groupby(
+        ["Experiment_Key", "Phase"], sort=False
+    ):
+        rho_sigma = _row_uncertainty(phase, "Rho_S", 0.01)
+        c_sigma = _row_uncertainty(phase, "C_S", 0.05)
+        a_rho, sd_rho, se_rho = robust_location(
+            phase["A_Rho_kg_m3"].to_numpy(float), 1.0 / rho_sigma**2
+        )
+        a_c, sd_c, se_c = robust_location(
+            phase["A_C_m_s"].to_numpy(float), 1.0 / c_sigma**2
+        )
+        method = "; ".join(sorted(set(phase["Selection_Method"].astype(str))))
+        rows.append(
+            {
+                "Experiment_Key": str(key),
+                "Source_File": str(phase["Source_File"].iloc[0]),
+                "ProbeNr": int(phase["ProbeNr"].iloc[0]),
+                "Phase": int(phase_number),
+                "N_Selected": int(len(phase)),
+                "Selection_Method": method,
+                "Al_wt_pct": float(np.average(phase["Al_wt_pct_eff"])),
+                "IPA_wt_pct": float(np.average(phase["IPA_wt_pct_eff"])),
+                "PG_wt_pct": float(np.average(phase["PG_wt_pct_eff"])),
+                "MG_wt_pct": float(np.average(phase["MG_wt_pct_eff"])),
+                "Water_wt_pct": float(np.average(phase["Water_wt_pct_eff"])),
+                "Temperature_Mean_C": float(np.average(phase["T_M"])),
+                "Temperature_Min_C": float(phase["T_M"].min()),
+                "Temperature_Max_C": float(phase["T_M"].max()),
+                "Total_Evaporation_Loss_Mean_g": float(
+                    np.average(phase["Total_Evaporation_Loss_g"])
+                ),
+                "IPA_Loss_Mean_g": float(np.average(phase["IPA_Loss_g"])),
+                "Water_Loss_Mean_g": float(np.average(phase["Water_Loss_g"])),
+                "Evaporation_Elapsed_Mean_h": float(
+                    np.average(phase["Evaporation_Elapsed_h"])
+                ),
+                "RPM_Documented_Fraction_Mean": float(
+                    np.average(phase["RPM_Documented_Fraction"])
+                ),
+                "A_Rho_kg_m3": a_rho,
+                "A_Rho_Robust_SD_kg_m3": sd_rho,
+                "A_Rho_SE_kg_m3": se_rho,
+                "A_C_m_s": a_c,
+                "A_C_Robust_SD_m_s": sd_c,
+                "A_C_SE_m_s": se_c,
+            }
+        )
+    nodes = pd.DataFrame(rows)
+    if nodes.empty:
+        raise ValueError("No residual nodes could be built.")
+    return nodes
+
+
+def node_scaler(nodes: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    x = nodes[FIELD_AXES].to_numpy(float)
+    centre = np.mean(x, axis=0)
+    scale = np.ptp(x, axis=0)
+    fallback = np.std(x, axis=0)
+    scale = np.where(scale > 1e-9, scale, fallback)
+    scale = np.where(scale > 1e-9, scale, 1.0)
+    return centre, scale
+
+
+def model_payload(
+    nodes: pd.DataFrame,
+    evaporation_summaries: list[EvaporationSummary],
+    evaporation_protocol: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    centre, scale = node_scaler(nodes)
+    table_hashes = {}
+    tables_path = args.tables.expanduser().resolve()
+    for name in (
+        "ipa_density.csv",
+        "pg_density.csv",
+        "ipa_sound.csv",
+        "pg_sound.csv",
+    ):
+        digest = sha256_file(tables_path / name)
+        if digest:
+            table_hashes[name] = digest
+
+    return {
+        "schema": "ink-residual-calibration-field",
+        "schema_version": 4,
+        "script_version": SCRIPT_VERSION,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "equation": "hybrid = physics + calibration_strength * A(w)",
+        "calibration_strength": model_calibration_strength({}, args.calibration_strength),
+        "residual_definition": "A = measurement - physics",
+        "composition_axes": FIELD_AXES,
+        "temperature_model": "InkCalculator only; A(w) has no learned temperature term",
+        "evaporation_assumption": (
+            "Total mass loss is split into 34 wt-% water and 66 wt-% IPA. "
+            "Loss is integrated from the documented stirring start with a "
+            "piecewise RPM-dependent total rate. MG is non-volatile."
+        ),
+        "methyl_gallate": {
+            "source_mass_column": "m_MG",
+            "effective_composition_column": "MG_wt_pct_eff",
+            "residual_field_axis": "MG_wt_pct",
+            "physics_argument": "mg",
+        },
+        "evaporation": {
+            "model": evaporation_protocol,
+            "applied_experiments": [
+                summary.__dict__ for summary in evaporation_summaries
+            ],
+        },
+        "interpolation": {
+            "method": INTERPOLATION_METHOD,
+            "bandwidth": float(args.bandwidth),
+            "node_selection": "all",
+            "quality_weighting": "fixed_inverse_squared_standard_error",
+            "quality_floor_fraction": 0.25,
+            "quality_absolute_floor": 1e-9,
+            "uncertainty_kind": "weighted_residual_spread_plus_node_variance",
+            "centre": centre.tolist(),
+            "scale": scale.tolist(),
+        },
+        "calculator": {
+            "filename": args.calculator.name,
+            "sha256": sha256_file(args.calculator.expanduser().resolve()),
+            "table_sha256": table_hashes,
+        },
+        "nodes": nodes.replace({np.nan: None}).to_dict(orient="records"),
+    }
+
+
+def save_json(payload: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False, allow_nan=False)
+
+
+def load_model(path: Path) -> dict[str, Any]:
+    path = path.expanduser().resolve()
+    with path.open("r", encoding="utf-8") as handle:
+        model = json.load(handle)
+    if model.get("schema") != "ink-residual-calibration-field":
+        raise ValueError(f"Unsupported calibration model: {path}")
+    if not model.get("nodes"):
+        raise ValueError("Calibration model contains no residual nodes.")
+    gaussian_bandwidth(model)
+    model_calibration_strength(model)
+    return model
+
+
+def model_calibration_strength(model: dict[str, Any], override: float | None = None) -> float:
+    """Resolve an absolute strength; an override replaces the saved value."""
+    value = model.get("calibration_strength", 1.0) if override is None else override
+    try:
+        strength = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Calibration strength must be a finite number between 0 and 1.") from exc
+    if not np.isfinite(strength) or not 0.0 <= strength <= 1.0:
+        raise ValueError("Calibration strength must be a finite number between 0 and 1.")
+    return strength
+
+
+def gaussian_bandwidth(model: dict[str, Any]) -> float:
+    """Validate method metadata; never silently reinterpret another field."""
+    settings = model.get("interpolation", {})
+    if not isinstance(settings, dict) or settings.get("method") != INTERPOLATION_METHOD:
+        raise ValueError(
+            "This script requires a Gaussian kernel regression field. "
+            "Build a new field with this script instead of loading an IDW field."
+        )
+    try:
+        bandwidth = float(settings["bandwidth"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Gaussian bandwidth must be a finite positive number.") from exc
+    if not np.isfinite(bandwidth) or bandwidth <= 0:
+        raise ValueError("Gaussian bandwidth must be a finite positive number.")
+    if settings.get("node_selection") != "all":
+        raise ValueError("Gaussian kernel regression must use all calibration nodes.")
+    if settings.get("quality_weighting") != "fixed_inverse_squared_standard_error":
+        raise ValueError("Unsupported Gaussian quality weighting.")
+    if (settings.get("quality_floor_fraction") != 0.25
+            or settings.get("quality_absolute_floor") != 1e-9):
+        raise ValueError("Unsupported Gaussian quality-weight floor settings.")
+    return bandwidth
+
+
+def warn_on_provenance_mismatch(
+    model: dict[str, Any], calculator_path: Path, tables_dir: Path
+) -> None:
+    """Warn when a saved A(w) field is used with different physics inputs."""
+    provenance = model.get("calculator", {})
+    expected_calculator = provenance.get("sha256")
+    actual_calculator = sha256_file(calculator_path.expanduser().resolve())
+    if expected_calculator and actual_calculator != expected_calculator:
+        print(
+            "WARNING: ink_calculator.py differs from the version used to build "
+            "this calibration field. Rebuilding A(w) is recommended.",
+            file=sys.stderr,
+        )
+
+    expected_tables = provenance.get("table_sha256", {})
+    table_directory = tables_dir.expanduser().resolve()
+    mismatched = [
+        name
+        for name, expected_hash in expected_tables.items()
+        if sha256_file(table_directory / name) != expected_hash
+    ]
+    if mismatched:
+        print(
+            "WARNING: Parameter tables differ from the calibration build: "
+            + ", ".join(sorted(mismatched))
+            + ". Rebuilding A(w) is recommended.",
+            file=sys.stderr,
+        )
+
+
+def model_composition_axes(model: dict[str, Any]) -> list[str]:
+    """Return and validate the composition axes stored in a field."""
+    axes = model.get("composition_axes", LEGACY_FIELD_AXES)
+    if not isinstance(axes, list) or not axes:
+        raise ValueError("Calibration model has invalid composition_axes metadata.")
+    allowed = set(FIELD_AXES)
+    unknown = [axis for axis in axes if axis not in allowed]
+    if unknown:
+        raise ValueError(f"Unsupported composition axes in calibration model: {unknown}")
+    if len(set(axes)) != len(axes):
+        raise ValueError("Calibration model contains duplicate composition axes.")
+    return list(axes)
+
+
+def gaussian_residual(
+    model: dict[str, Any], al: float, ipa: float, pg: float, mg: float = 0.0,
+    calibration_strength: float | None = None,
+) -> dict[str, Any]:
+    """Return raw and strength-scaled Gaussian corrections with stable weights.
+
+    Quality weights and their fallback are based on the entire saved field,
+    separately for density and sound velocity. No branch forces exact matches
+    at node locations. Nearest-node information is diagnostic only.
+    """
+    bandwidth = gaussian_bandwidth(model)
+    strength = model_calibration_strength(model, calibration_strength)
+    nodes = pd.DataFrame(model["nodes"])
+    if nodes.empty:
+        raise ValueError("Calibration model contains no residual nodes.")
+    axes = model_composition_axes(model)
+    missing = [axis for axis in axes if axis not in nodes.columns]
+    if missing:
+        raise ValueError(f"Calibration nodes are missing composition axes: {missing}")
+    coordinates = nodes[axes].to_numpy(float)
+    target_by_axis = {
+        "Al_wt_pct": al,
+        "IPA_wt_pct": ipa,
+        "PG_wt_pct": pg,
+        "MG_wt_pct": mg,
+    }
+    target = np.array([target_by_axis[axis] for axis in axes], dtype=float)
+    if not np.all(np.isfinite(coordinates)) or not np.all(np.isfinite(target)):
+        raise ValueError("Calibration coordinates and query composition must be finite.")
+    scale = np.asarray(model["interpolation"]["scale"], dtype=float)
+    if scale.shape != target.shape or np.any(~np.isfinite(scale)) or np.any(scale <= 0):
+        raise ValueError(
+            "Calibration interpolation scale does not match composition_axes."
+        )
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        offsets = (coordinates - target) / scale
+        squared_distances = np.sum(offsets**2, axis=1)
+    if not np.all(np.isfinite(squared_distances)):
+        raise ValueError("Scaled composition distances exceed the numerical range.")
+    nearest = int(np.argmin(squared_distances))
+    # A common exponent offset cancels in the normalized mean. Subtract it
+    # before dividing by the bandwidth to avoid all-zero weights far away.
+    with np.errstate(over="ignore"):
+        log_geometry = (-0.5 * (squared_distances - squared_distances[nearest])
+                        / bandwidth / bandwidth)
+
+    output: dict[str, Any] = {}
+    for value_column, se_column, key in (
+        ("A_Rho_kg_m3", "A_Rho_SE_kg_m3", "A_Rho_kg_m3"),
+        ("A_C_m_s", "A_C_SE_m_s", "A_C_m_s"),
+    ):
+        require_columns(nodes, [value_column, se_column])
+        values = nodes[value_column].to_numpy(float)
+        if not np.all(np.isfinite(values)):
+            raise ValueError(f"Calibration residuals must be finite: {value_column}.")
+        se = pd.to_numeric(nodes[se_column], errors="coerce").to_numpy(float)
+        finite_se = se[np.isfinite(se) & (se >= 0)]
+        fallback = float(np.median(finite_se)) if finite_se.size else 1.0
+        se = np.where(np.isfinite(se) & (se >= 0), se, fallback)
+        # Logarithms also avoid overflow for very small standard errors.
+        log_quality = -2.0 * np.log(np.maximum(se, max(fallback * 0.25, 1e-9)))
+        log_weights = log_geometry + log_quality
+        weights = np.exp(log_weights - np.max(log_weights))
+        weights /= np.sum(weights)
+        estimate = float(np.sum(weights * values))
+        uncertainty = float(
+            np.sqrt(np.sum(weights * ((values - estimate) ** 2 + se**2)))
+        )
+        raw_key = key.replace("_kg_m3", "_Field_kg_m3").replace("_m_s", "_Field_m_s")
+        output[raw_key] = estimate
+        output[raw_key.replace("_Field_", "_Field_Uncertainty_")] = uncertainty
+        output[key] = strength * estimate
+        output[key.replace("A_", "A_Uncertainty_")] = strength * uncertainty
+
+    minimum = coordinates.min(axis=0)
+    maximum = coordinates.max(axis=0)
+    outside_axes = [
+        axis.removesuffix("_wt_pct")
+        for axis, value, low, high in zip(axes, target, minimum, maximum)
+        if value < low - 1e-10 * max(1.0, abs(low), abs(high))
+        or value > high + 1e-10 * max(1.0, abs(low), abs(high))
+    ]
+    output.update(
+        {
+            "Nearest_Normalized_Distance": float(np.sqrt(squared_distances[nearest])),
+            "Nearest_Node": int(nearest),
+            "Neighbor_Count": int(len(nodes)),
+            "Kernel_Bandwidth": bandwidth,
+            "Calibration_Strength": strength,
+            "Interpolation_Method": INTERPOLATION_METHOD,
+            "Outside_Bounding_Box": bool(outside_axes),
+            "Outside_Axes": outside_axes,
+            "Field_Composition_Axes": axes,
+            "MG_Axis_Used": "MG_wt_pct" in axes,
+        }
+    )
+    return output
+
+
+def physics_prediction(
+    calculator,
+    al: float,
+    ipa: float,
+    pg: float,
+    temperature: float,
+    mg: float = 0.0,
+):
+    if min(al, ipa, pg, mg) < 0 or al + ipa + pg + mg > 100:
+        raise ValueError("Composition must be non-negative and sum to at most 100 wt-%.")
+    arguments = {
+        "al": al,
+        "ipa": ipa,
+        "pg": pg,
+        "mg": mg,
+        "temperature": temperature,
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        rho = 1000.0 * float(calculator.density(**arguments))
+        sound = float(calculator.sound_velocity(**arguments))
+    return rho, sound
+
+
+def predict_one(
+    model: dict[str, Any],
+    calculator,
+    al: float,
+    ipa: float,
+    pg: float,
+    temperature: float,
+    mg: float = 0.0,
+    calibration_strength: float | None = None,
+) -> dict[str, Any]:
+    rho_physics, c_physics = physics_prediction(
+        calculator, al, ipa, pg, temperature, mg=mg
+    )
+    correction = gaussian_residual(model, al, ipa, pg, mg=mg,
+                                   calibration_strength=calibration_strength)
+    return {
+        "Al_wt_pct": float(al),
+        "IPA_wt_pct": float(ipa),
+        "PG_wt_pct": float(pg),
+        "MG_wt_pct": float(mg),
+        "Water_wt_pct": float(100.0 - al - ipa - pg - mg),
+        "Temperature_C": float(temperature),
+        "Rho_Physics_kg_m3": rho_physics,
+        "A_Rho_kg_m3": correction["A_Rho_kg_m3"],
+        "A_Rho_Field_kg_m3": correction["A_Rho_Field_kg_m3"],
+        "Rho_Hybrid_kg_m3": rho_physics + correction["A_Rho_kg_m3"],
+        "A_Rho_Uncertainty_kg_m3": correction["A_Uncertainty_Rho_kg_m3"],
+        "C_Physics_m_s": c_physics,
+        "A_C_m_s": correction["A_C_m_s"],
+        "A_C_Field_m_s": correction["A_C_Field_m_s"],
+        "C_Hybrid_m_s": c_physics + correction["A_C_m_s"],
+        "A_C_Uncertainty_m_s": correction["A_Uncertainty_C_m_s"],
+        "Nearest_Normalized_Distance": correction["Nearest_Normalized_Distance"],
+        "Neighbor_Count": correction["Neighbor_Count"],
+        "Kernel_Bandwidth": correction["Kernel_Bandwidth"],
+        "Calibration_Strength": correction["Calibration_Strength"],
+        "Interpolation_Method": correction["Interpolation_Method"],
+        "Outside_Bounding_Box": correction["Outside_Bounding_Box"],
+        "Outside_Axes": correction["Outside_Axes"],
+        "Field_Composition_Axes": correction["Field_Composition_Axes"],
+        "MG_Axis_Used": correction["MG_Axis_Used"],
+    }
+
+
+def metric_row(measured: pd.Series, predicted: pd.Series, name: str) -> dict[str, Any]:
+    pair = pd.DataFrame({"measured": measured, "predicted": predicted}).dropna()
+    if pair.empty:
+        return {"Model": name, "N": 0}
+    error = pair["predicted"].to_numpy(float) - pair["measured"].to_numpy(float)
+    measured_values = pair["measured"].to_numpy(float)
+    denominator = np.abs(measured_values) > np.finfo(float).eps
+    sst = float(np.sum((measured_values - np.mean(measured_values)) ** 2))
+    sse = float(np.sum(error**2))
+    return {
+        "Model": name,
+        "N": int(len(pair)),
+        "Bias_ME": float(np.mean(error)),
+        "MAE": float(np.mean(np.abs(error))),
+        "RMSE": float(np.sqrt(np.mean(error**2))),
+        "MAPE_pct": float(np.mean(np.abs(error[denominator] / measured_values[denominator])) * 100),
+        "R2": 1.0 - sse / sst if sst > 0 else np.nan,
+    }
+
+
+def make_diagnostic_plot(rows: pd.DataFrame, nodes: pd.DataFrame, path: Path) -> None:
+    selected = rows[rows["Selected_For_Calibration"] & rows["Simulation_Status"].eq("ok")]
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    for _, part in selected.groupby("Experiment_Key"):
+        label = str(part["Experiment_Key"].iloc[0])
+        axes[0, 0].plot(
+            part["Evaporation_Elapsed_h"],
+            part["Total_Evaporation_Loss_g"],
+            ".-",
+            label=label,
+        )
+        axes[0, 1].scatter(part["Experiment_Elapsed_h"], part["A_Rho_kg_m3"], s=18, label=label)
+        axes[1, 0].scatter(part["Experiment_Elapsed_h"], part["A_C_m_s"], s=18, label=label)
+    axes[0, 0].set_title("Cumulative evaporation since stirring start")
+    axes[0, 0].set_ylabel("Total loss [g] (34% water / 66% IPA)")
+    axes[0, 1].set_title("Point residuals after composition correction")
+    axes[0, 1].set_ylabel("A_rho [kg/m3]")
+    axes[1, 0].set_ylabel("A_c [m/s]")
+    axes[0, 0].set_xlabel("Elapsed time since stirring start [h]")
+    for axis in (axes[0, 1], axes[1, 0]):
+        axis.set_xlabel("Elapsed measurement time [h]")
+    for axis in (axes[0, 0], axes[0, 1], axes[1, 0]):
+        axis.grid(alpha=0.25)
+
+    scatter = axes[1, 1].scatter(
+        nodes["IPA_wt_pct"],
+        nodes["PG_wt_pct"],
+        c=nodes["A_C_m_s"],
+        s=45 + 8 * nodes["N_Selected"],
+        cmap="coolwarm",
+        edgecolor="black",
+    )
+    axes[1, 1].set_title("Sound residual nodes")
+    axes[1, 1].set_xlabel("IPA [wt-%]")
+    axes[1, 1].set_ylabel("PG [wt-%]")
+    axes[1, 1].grid(alpha=0.25)
+    for _, node in nodes[nodes["MG_wt_pct"].gt(1e-9)].iterrows():
+        axes[1, 1].annotate(
+            f"MG {node['MG_wt_pct']:.3f}%",
+            (node["IPA_wt_pct"], node["PG_wt_pct"]),
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=7,
+        )
+    fig.colorbar(scatter, ax=axes[1, 1], label="A_c [m/s]")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+
+
+def print_nodes(nodes: pd.DataFrame) -> None:
+    columns = [
+        "Source_File",
+        "ProbeNr",
+        "Phase",
+        "N_Selected",
+        "Al_wt_pct",
+        "IPA_wt_pct",
+        "PG_wt_pct",
+        "MG_wt_pct",
+        "A_Rho_kg_m3",
+        "A_C_m_s",
+    ]
+    print("\nResidual calibration nodes A(w) = measurement - physics")
+    print("-" * 120)
+    with pd.option_context("display.max_columns", None, "display.width", 180):
+        print(nodes[columns].round(6).to_string(index=False))
+
+
+def safe_name(value: str, limit: int = 56) -> str:
+    """Create a portable folder component; a hash preserves long-name identity."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value)).strip("_") or "unnamed"
+    if len(cleaned) > limit:
+        suffix = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:8]
+        cleaned = cleaned[:limit - 9] + "_" + suffix
+    return cleaned
+
+
+def source_manifest(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    records = []
+    for source, part in frame.groupby("Source_Path", sort=False):
+        path = Path(source)
+        records.append({"path": str(path), "filename": path.name,
+                        "sha256": sha256_file(path),
+                        "samples": sorted(pd.to_numeric(part["ProbeNr"]).astype(int).unique().tolist())})
+    return records
+
+
+def automatic_output(kind: str, frame: pd.DataFrame, model_path: Path | None = None) -> Path:
+    """Allocate a new run directory without overwriting previous runs."""
+    probes = "probe_" + "_".join(str(v) for v in sorted(
+        pd.to_numeric(frame["ProbeNr"]).astype(int).unique()))
+    sources = "__".join(Path(v).stem for v in frame["Source_Path"].unique())
+    if kind == "build":
+        root = CALIBRATION_ROOT
+        label = safe_name(probes, 36) + "__" + safe_name(sources, 48)
+    else:
+        root = EVALUATION_ROOT
+        field = model_path.parent.name if model_path.name == "calibration_field.json" else model_path.stem
+        label = ("field_" + safe_name(field, 48) + "__data_" + safe_name(sources, 48)
+                 + "__" + safe_name(probes, 28))
+    root.mkdir(parents=True, exist_ok=True)
+    label += "__" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    for counter in range(10000):
+        path = root / (label if counter == 0 else f"{label}_{counter:03d}")
+        try:
+            path.mkdir()
+            return path.resolve()
+        except FileExistsError:
+            continue
+    raise RuntimeError("Could not allocate a unique output directory.")
+
+
+def load_ink_input(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep reference measurements separate from an ink residual field."""
+    raw = filter_samples(load_measurements(args.input), args.samples)
+    require_columns(raw, MASS_COLUMNS + MEASUREMENT_COLUMNS)
+    numeric = raw[MASS_COLUMNS].apply(pd.to_numeric, errors="coerce")
+    solutes = numeric[["m_SL120", "m_IPA", "m_PG", "m_MG"]]
+    reference = (pd.to_numeric(raw["ProbeNr"], errors="coerce").isin([100, 101])
+                 | (solutes.notna().all(axis=1) & solutes.eq(0).all(axis=1)))
+    excluded = raw.loc[reference].copy()
+    if len(excluded):
+        print(f"NOTE: {len(excluded)} water/air reference rows are excluded from the ink field "
+              "and saved separately.")
+    raw = raw.loc[~reference].copy()
+    if raw.empty:
+        raise ValueError("The selection contains only reference measurements, not ink.")
+    return raw, excluded
+
+
+def build_command(args: argparse.Namespace) -> None:
+    raw, reference_rows = load_ink_input(args)
+    prepared = add_nominal_component_masses(
+        add_timestamps_and_phases(raw, args.date_column, args.time_column, args.phase_gap_min)
+    )
+    prepared = select_calibration_rows(
+        prepared,
+        args.quality_mode,
+        args.minimum_points_per_phase,
+        args.settling_fraction,
+        args.low_noise_keep_fraction,
+    )
+    protocols, protocol_manifest = load_evaporation_protocol(
+        args.evaporation_protocol
+    )
+    corrected, evaporation_summaries = apply_evaporation(prepared, protocols)
+    calculator = load_calculator(args.calculator, args.tables)
+    simulated = simulate_rows(corrected, calculator)
+    failures = simulated["Simulation_Status"].ne("ok")
+    if failures.any():
+        examples = simulated.loc[failures, "Simulation_Status"].value_counts().head(3)
+        print(f"WARNING: {int(failures.sum())} simulations failed:\n{examples}")
+    nodes = build_nodes(simulated)
+    payload = model_payload(nodes, evaporation_summaries, protocol_manifest, args)
+    payload["training_data"] = source_manifest(raw)
+    payload["training_measurement_keys"] = measurement_keys(simulated.loc[
+        simulated["Selected_For_Calibration"] & simulated["Simulation_Status"].eq("ok")]).tolist()
+    output = automatic_output("build", raw)
+    payload["field_name"] = output.name
+    model_path = output / "calibration_field.json"
+    nodes_path = output / "calibration_nodes.csv"
+    rows_path = output / "calibration_measurements.csv"
+    evaporation_path = output / "evaporation_summary.csv"
+    plot_path = output / "calibration_diagnostics.png"
+    save_json(payload, model_path)
+    save_json({"operation": "build", "output_directory": str(output),
+               "script_version": SCRIPT_VERSION,
+               "interpolation": payload["interpolation"],
+               "calibration_strength": payload["calibration_strength"],
+               "training_data": payload["training_data"],
+               "reference_rows_excluded": len(reference_rows)}, output / "run_manifest.json")
+    if len(reference_rows):
+        reference_rows.to_csv(output / "excluded_reference_measurements.csv", index=False)
+    nodes.to_csv(nodes_path, index=False)
+    simulated.to_csv(rows_path, index=False)
+    pd.DataFrame([summary.__dict__ for summary in evaporation_summaries]).to_csv(
+        evaporation_path, index=False
+    )
+    make_diagnostic_plot(simulated, nodes, plot_path)
+
+    print("\nApplied evaporation correction")
+    print("-" * 100)
+    evaporation_frame = pd.DataFrame([summary.__dict__ for summary in evaporation_summaries])
+    print(evaporation_frame.round(6).to_string(index=False))
+    if any(summary.rpm_documented_fraction_to_last < 0.999 for summary in evaporation_summaries):
+        print(
+            "NOTE: At least one experiment contains undocumented RPM periods; those periods "
+            f"use the robust total-loss rate {UNDOCUMENTED_TOTAL_RATE_G_H:.3f} g/h."
+        )
+    print_nodes(nodes)
+    print("\nSaved calibration field")
+    print(f"  Method:      Gaussian kernel regression (all {len(nodes)} nodes)")
+    print(f"  Bandwidth:   {args.bandwidth:g} (scaled coordinates)")
+    print(f"  Strength:    {payload['calibration_strength']:g} (saved; nodes remain unscaled)")
+    print("  NOTE: Bandwidth is user-selected; the default is not a validated optimum.")
+    print(f"  Model:       {model_path}")
+    print(f"  Nodes:       {nodes_path}")
+    print(f"  Measurements:{rows_path}")
+    print(f"  Evaporation: {evaporation_path}")
+    print(f"  Diagnostics: {plot_path}")
+
+
+def predict_command(args: argparse.Namespace) -> None:
+    model = load_model(args.model)
+    warn_on_provenance_mismatch(model, args.calculator, args.tables)
+    calculator = load_calculator(args.calculator, args.tables)
+    result = predict_one(
+        model,
+        calculator,
+        args.al,
+        args.ipa,
+        args.pg,
+        args.temperature,
+        mg=args.mg,
+        calibration_strength=args.calibration_strength,
+    )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
+        return
+    print("Hybrid prediction")
+    print("-" * 72)
+    print(f"Method:       Gaussian kernel regression; bandwidth={result['Kernel_Bandwidth']:g}; "
+          f"nodes={result['Neighbor_Count']}")
+    print(f"Strength:     {result['Calibration_Strength']:g}")
+    print(
+        f"Composition:  Al={args.al:.6f} %, IPA={args.ipa:.6f} %, "
+        f"PG={args.pg:.6f} %, MG={args.mg:.6f} %"
+    )
+    print(f"Temperature:  {args.temperature:.3f} C")
+    print(
+        f"Density:      physics={result['Rho_Physics_kg_m3']:.6f}, "
+        f"A={result['A_Rho_kg_m3']:+.6f}, hybrid={result['Rho_Hybrid_kg_m3']:.6f} kg/m3"
+    )
+    print(
+        f"Sound:        physics={result['C_Physics_m_s']:.6f}, "
+        f"A={result['A_C_m_s']:+.6f}, hybrid={result['C_Hybrid_m_s']:.6f} m/s"
+    )
+    print(f"Node distance:{result['Nearest_Normalized_Distance']:.6f}")
+    if result["Outside_Bounding_Box"]:
+        print(f"WARNING: Composition is outside calibration bounds for {result['Outside_Axes']}.")
+    if args.mg > 0.0 and not result["MG_Axis_Used"]:
+        print(
+            "WARNING: Physics includes MG, but this legacy residual field has "
+            "no MG composition axis."
+        )
+
+
+def measurement_keys(frame: pd.DataFrame) -> pd.Series:
+    """Identify the same acquisition across differently named CSV snapshots."""
+    def key(row):
+        text = "|".join([str(int(row["ProbeNr"])), str(row["Measurement_Time_UTC"])]
+                        + [f"{float(row[c]):.9g}" for c in MASS_COLUMNS])
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return frame.apply(key, axis=1)
+
+
+def phase_evaluation_summary(rows: pd.DataFrame) -> pd.DataFrame:
+    """Average paired predictions and observations, never predict at mean inputs.
+
+    Contiguous phases are kept separate across files, samples and time gaps.
+    SD describes variation among the retained timestamps, not a confidence
+    interval or independent preparation repeatability.
+    """
+    records = []
+    source_ids = {path: i + 1 for i, path in enumerate(rows["Source_Path"].unique())}
+    for (_, phase), all_rows in rows.groupby(["Experiment_Key", "Phase"], sort=False):
+        selected = all_rows.loc[all_rows["Selected_For_Evaluation"]]
+        first = all_rows.iloc[0]
+        probe = int(first["ProbeNr"])
+        composition_rows = selected if len(selected) else all_rows
+        record = {
+            "Phase_ID": f"F{source_ids[first['Source_Path']]}-P{probe}-S{int(phase)}",
+            "Source_File": first["Source_File"], "Source_Path": first["Source_Path"],
+            "ProbeNr": probe, "Phase": int(phase), "N_Total": len(all_rows),
+            "N_Selected": len(selected), "N_Excluded": len(all_rows) - len(selected),
+            "Selection_Method": "; ".join(sorted(selected["Selection_Method"].unique())),
+            "Start_UTC": str(all_rows["Measurement_Time_UTC"].min()),
+            "End_UTC": str(all_rows["Measurement_Time_UTC"].max()),
+            "N_Extrapolated": int(selected["Calibration_Extrapolation"].fillna(False).sum()),
+            "N_Training_Overlap": int(selected["Training_Overlap"].sum()),
+            "Temperature_Mean_C": float(composition_rows["T_M"].mean()),
+            "Temperature_Min_C": float(composition_rows["T_M"].min()),
+            "Temperature_Max_C": float(composition_rows["T_M"].max()),
+            "Evaporation_Elapsed_Mean_h": float(
+                composition_rows["Evaporation_Elapsed_h"].mean()
+            ),
+            "Total_Evaporation_Loss_Mean_g": float(
+                composition_rows["Total_Evaporation_Loss_g"].mean()
+            ),
+            "IPA_Loss_Mean_g": float(composition_rows["IPA_Loss_g"].mean()),
+            "Water_Loss_Mean_g": float(composition_rows["Water_Loss_g"].mean()),
+            "RPM_Documented_Fraction_Mean": float(
+                composition_rows["RPM_Documented_Fraction"].mean()
+            ),
+        }
+        for component in ("Al", "IPA", "PG", "MG", "Water"):
+            values = composition_rows[f"{component}_wt_pct_eff"]
+            record[f"{component}_wt_pct"] = float(values.mean())
+            record[f"{component}_Min_wt_pct"] = float(values.min())
+            record[f"{component}_Max_wt_pct"] = float(values.max())
+        record.update({c: float(first[c]) for c in MASS_COLUMNS})
+        for prefix, measured, physics, hybrid in (
+            ("Rho", "Rho_M", "Rho_Physics_kg_m3", "Rho_Hybrid_kg_m3"),
+            ("C", "C_M", "C_Physics_m_s", "C_Hybrid_m_s"),
+        ):
+            for label, column in (("Measured", measured), ("Physics", physics), ("Hybrid", hybrid)):
+                values = selected[column]
+                for stat, value in (("Mean", values.mean()), ("SD", values.std(ddof=1)),
+                                    ("Min", values.min()), ("Max", values.max())):
+                    record[f"{prefix}_{stat}_{label}"] = float(value)
+            errors = selected[hybrid] - selected[measured]
+            record[f"{prefix}_Mean_Error"] = float(errors.mean())
+            record[f"{prefix}_SD_Error"] = float(errors.std(ddof=1))
+            record[f"{prefix}_RMSE_Within_Phase"] = float(np.sqrt((errors ** 2).mean()))
+        records.append(record)
+    return pd.DataFrame(records)
+
+
+def phase_accuracy_metrics(phases: pd.DataFrame) -> pd.DataFrame:
+    """Weight every usable recipe phase once, regardless of recording length."""
+    usable = phases.loc[phases["N_Selected"].gt(0)]
+    records = []
+    for prefix, name in (("Rho", "Density"), ("C", "Sound velocity")):
+        for model in ("Physics", "Hybrid"):
+            result = metric_row(usable[f"{prefix}_Mean_Measured"],
+                                usable[f"{prefix}_Mean_{model}"], f"{name} - {model.lower()}")
+            result["Weighting"] = "One equal weight per phase mean"
+            records.append(result)
+    return pd.DataFrame(records)
+
+
+def create_phase_plots(phases: pd.DataFrame, output: Path) -> list[Path]:
+    """Create paginated comparisons and a parity plot; bars are +/- one SD."""
+    usable = phases.loc[phases["N_Selected"].gt(0)].copy()
+    if usable.empty:
+        return []
+    paths = []
+    specs = (("Rho", "Density", "kg/m3"), ("C", "Sound velocity", "m/s"))
+    for page, start in enumerate(range(0, len(usable), 12), 1):
+        part = usable.iloc[start:start + 12]
+        x = np.arange(len(part))
+        fig, axes = plt.subplots(2, 2, figsize=(14, 9), constrained_layout=True)
+        for column, (prefix, name, unit) in enumerate(specs):
+            axis = axes[0, column]
+            for label, offset, color, marker in (("Measured", -0.10, "#1d4e89", "o"),
+                                                  ("Hybrid", 0.10, "#bd4f22", "s")):
+                axis.errorbar(x + offset, part[f"{prefix}_Mean_{label}"],
+                              yerr=part[f"{prefix}_SD_{label}"].fillna(0),
+                              fmt=marker, color=color, capsize=3, label=f"{label}: mean +/- SD")
+            axis.set(title=name, ylabel=unit)
+            axis.legend(fontsize=8)
+            axis = axes[1, column]
+            axis.axhline(0, color="#555555", linewidth=1)
+            axis.errorbar(x, part[f"{prefix}_Mean_Error"],
+                          yerr=part[f"{prefix}_SD_Error"].fillna(0), fmt="o",
+                          color="#6a3d7d", capsize=3)
+            axis.set(title="Paired error: hybrid - measured", ylabel=unit)
+            for axis in axes[:, column]:
+                axis.set_xticks(x)
+                axis.set_xticklabels(part["Phase_ID"], rotation=45, ha="right", fontsize=8)
+                axis.grid(axis="y", alpha=0.2)
+        fig.suptitle(f"Recipe-phase comparison | page {page}\n"
+                     "Predictions evaluated at each retained timestamp; SD is not a confidence interval",
+                     fontsize=12)
+        path = output / f"hybrid_phase_comparison_{page:02d}.png"
+        fig.savefig(path, dpi=160)
+        plt.close(fig)
+        paths.append(path)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 6), constrained_layout=True)
+    for axis, (prefix, name, unit) in zip(axes, specs):
+        measured = usable[f"{prefix}_Mean_Measured"]
+        predicted = usable[f"{prefix}_Mean_Hybrid"]
+        groups = usable.groupby("ProbeNr", sort=True)
+        for i, (probe, group) in enumerate(groups):
+            axis.errorbar(group[f"{prefix}_Mean_Measured"], group[f"{prefix}_Mean_Hybrid"],
+                          xerr=group[f"{prefix}_SD_Measured"].fillna(0),
+                          yerr=group[f"{prefix}_SD_Hybrid"].fillna(0),
+                          fmt="o", color=plt.get_cmap("tab10")(i % 10), alpha=0.85,
+                          capsize=2, label=f"Probe {probe}")
+        low, high = min(measured.min(), predicted.min()), max(measured.max(), predicted.max())
+        padding = max(float(high - low) * 0.1, 0.05)
+        axis.plot([low - padding, high + padding], [low - padding, high + padding],
+                  "--", color="#555555", label="Ideal: prediction = measurement")
+        axis.set(xlabel=f"Measured phase mean [{unit}]", ylabel=f"Hybrid phase mean [{unit}]",
+                 title=name)
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+    fig.suptitle("Hybrid parity | one point per phase, horizontal and vertical bars: +/- one SD")
+    path = output / "hybrid_parity.png"
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+    paths.insert(0, path)
+    return paths
+
+
+def write_evaluation_report(phases: pd.DataFrame, metrics: pd.DataFrame,
+                            metadata: dict[str, Any], plots: list[Path], output: Path) -> Path:
+    """Write a portable HTML report with embedded plots and readable tables."""
+    def table(frame):
+        return frame.to_html(index=False, escape=True, border=0, na_rep="n/a",
+                             float_format=lambda value: f"{value:.4f}")
+    def heading(text):
+        return f"<h2>{html.escape(text)}</h2>"
+    overview_columns = ["Phase_ID", "Source_File", "ProbeNr", "N_Selected", "N_Excluded",
+                        "Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct",
+                        "Total_Evaporation_Loss_Mean_g", "IPA_Loss_Mean_g",
+                        "Water_Loss_Mean_g", "RPM_Documented_Fraction_Mean",
+                        "Temperature_Min_C", "Temperature_Max_C", "N_Extrapolated"]
+    sections = [heading("Accuracy of phase means (equal phase weighting)"), table(metrics),
+                heading("Recipe phases and selection"), table(phases[overview_columns])]
+    for prefix, label in (("Rho", "Density [kg/m3]"), ("C", "Sound velocity [m/s]")):
+        cols = ["Phase_ID", "N_Selected", f"{prefix}_Mean_Measured", f"{prefix}_SD_Measured",
+                f"{prefix}_Min_Measured", f"{prefix}_Max_Measured",
+                f"{prefix}_Mean_Hybrid", f"{prefix}_SD_Hybrid",
+                f"{prefix}_Mean_Error", f"{prefix}_SD_Error", f"{prefix}_RMSE_Within_Phase"]
+        labels = {c: c.removeprefix(prefix + "_").replace("_", " ") for c in cols}
+        sections += [heading(label), table(phases[cols].rename(columns=labels))]
+    images = []
+    for path in plots:
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        images.append(f'<img alt="{html.escape(path.stem)}" src="data:image/png;base64,{encoded}">')
+    overlap = metadata["training_overlap_selected_rows"]
+    caution = (f"{overlap} selected rows also occur in the calibration data. This is at least "
+               "partly an in-sample comparison, not an independent validation." if overlap else
+               "No matching training acquisition was detected. This alone does not prove independent validation.")
+    if not metadata["training_overlap_check_available"]:
+        caution = "This older field has no acquisition fingerprints; training-data overlap cannot be verified."
+        if metadata["legacy_possible_overlap"]:
+            caution += " Source filename and sample labels suggest possible overlap with training data."
+    source_list = "".join(f"<li>{html.escape(item['path'])} | Samples {item['samples']}</li>"
+                          for item in metadata["evaluation_data"])
+    document = """<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Hybrid ink model evaluation</title><style>
+body{font:15px/1.55 system-ui,sans-serif;color:#172b3a;background:#f4f7fa;margin:0;padding:32px}
+main{max-width:1440px;margin:auto;background:white;padding:28px;border-radius:12px}
+h1,h2{color:#173d61}h2{margin-top:32px}img{width:100%;height:auto;margin:16px 0}
+table{border-collapse:collapse;display:block;overflow-x:auto;font-size:12px;margin:16px 0}
+th,td{padding:9px 12px;border-bottom:1px solid #dce3ea;text-align:right;white-space:nowrap}
+th{background:#eaf0f6}tr:nth-child(even){background:#f7f9fb}li{overflow-wrap:anywhere}
+.note{padding:14px;background:#fff5db;border-left:4px solid #c68613}
+</style><main><h1>Hybrid model vs. measured ink</h1>"""
+    document += f"<p><b>Calibration field:</b> {html.escape(metadata['model_path'])}</p><ul>{source_list}</ul>"
+    document += ("<p><b>Correction method:</b> Gaussian kernel regression over all nodes; "
+                 f"bandwidth = {metadata['interpolation']['bandwidth']:g} "
+                 "in range-scaled composition coordinates. Calibration values are "
+                 "smoothed rather than necessarily matched exactly.</p>")
+    document += (f"<p><b>Calibration strength:</b> {metadata['calibration_strength']:g}; "
+                 "hybrid = physics + strength * field correction.</p>")
+    document += f"<p><b>Selection:</b> {html.escape(metadata['quality_mode'])}; "
+    document += (
+        "<b>Evaporation:</b> protocol-based total loss, split into "
+        "34 wt-% water and 66 wt-% IPA, integrated from stirring start.</p>"
+    )
+    document += f'<p class="note">{html.escape(caution)}</p>'
+    document += """<p>Each point represents one contiguous recipe phase within one sample and source file.
+Repeated phases and different days are kept separate. Measured and predicted means use exactly the
+same selected timestamps. Temperature and effective composition are applied before averaging.
+Bars show sample standard deviation (SD, ddof=1); for one retained timestamp SD is unavailable.
+SD includes within-phase drift and is neither a confidence interval nor a model-uncertainty band.
+Measured min/max and paired-error SD are listed below. Phase-mean metrics weight each phase equally;
+they do not replace inspection of within-phase errors. Extrapolation counts are bounding-box flags,
+not a guarantee that points inside the bounds are well supported.</p>"""
+    document += "".join(images + sections) + "</main></html>"
+    path = output / "evaluation_report.html"
+    path.write_text(document, encoding="utf-8")
+    return path
+
+
+def evaluate_command(args: argparse.Namespace) -> None:
+    model = load_model(args.model)
+    strength = model_calibration_strength(model, args.calibration_strength)
+    warn_on_provenance_mismatch(model, args.calculator, args.tables)
+    raw, reference_rows = load_ink_input(args)
+    prepared = add_nominal_component_masses(
+        add_timestamps_and_phases(raw, args.date_column, args.time_column, args.phase_gap_min)
+    )
+    # Reuse the same quality rules; these flags select evaluation rows only.
+    prepared = select_calibration_rows(
+        prepared, args.quality_mode, args.minimum_points_per_phase,
+        args.settling_fraction, args.low_noise_keep_fraction,
+    )
+    protocols, protocol_manifest = load_evaporation_protocol(
+        args.evaporation_protocol
+    )
+    corrected, summaries = apply_evaporation(prepared, protocols)
+    calculator = load_calculator(args.calculator, args.tables)
+    corrected = simulate_rows(corrected, calculator)
+    predictions: list[dict[str, Any]] = []
+    for index, row in corrected.iterrows():
+        if row["Simulation_Status"] != "ok":
+            continue
+        correction = gaussian_residual(
+            model,
+            float(row["Al_wt_pct_eff"]),
+            float(row["IPA_wt_pct_eff"]),
+            float(row["PG_wt_pct_eff"]),
+            mg=float(row["MG_wt_pct_eff"]),
+            calibration_strength=strength,
+        )
+        predictions.append(
+            {
+                "index": index,
+                "A_Rho_Field_kg_m3": correction["A_Rho_Field_kg_m3"],
+                "A_C_Field_m_s": correction["A_C_Field_m_s"],
+                "A_Rho_Applied_kg_m3": correction["A_Rho_kg_m3"],
+                "A_C_Applied_m_s": correction["A_C_m_s"],
+                "A_Rho_Uncertainty_kg_m3": correction["A_Uncertainty_Rho_kg_m3"],
+                "A_C_Uncertainty_m_s": correction["A_Uncertainty_C_m_s"],
+                "Calibration_Strength": strength,
+                "Calibration_Distance": correction["Nearest_Normalized_Distance"],
+                "Calibration_Extrapolation": correction["Outside_Bounding_Box"],
+                "Calibration_Outside_Axes": ",".join(correction["Outside_Axes"]),
+                "Calibration_MG_Axis_Used": correction["MG_Axis_Used"],
+            }
+        )
+    if not predictions:
+        raise ValueError("No measurement row could be simulated. Check the calculator and input data.")
+    prediction_frame = pd.DataFrame(predictions).set_index("index")
+    corrected = corrected.join(prediction_frame)
+    corrected["Rho_Hybrid_kg_m3"] = corrected["Rho_Physics_kg_m3"] + corrected["A_Rho_Applied_kg_m3"]
+    corrected["C_Hybrid_m_s"] = corrected["C_Physics_m_s"] + corrected["A_C_Applied_m_s"]
+    paired_columns = ["Rho_M", "C_M", "Rho_Physics_kg_m3", "C_Physics_m_s",
+                      "Rho_Hybrid_kg_m3", "C_Hybrid_m_s"]
+    corrected["Selected_For_Evaluation"] = (corrected.pop("Selected_For_Calibration")
+        & corrected["Simulation_Status"].eq("ok") & np.isfinite(corrected[paired_columns]).all(axis=1))
+    training_keys = set(model.get("training_measurement_keys", []))
+    corrected["Training_Overlap"] = measurement_keys(corrected).isin(training_keys)
+    selected = corrected.loc[corrected["Selected_For_Evaluation"]]
+    if selected.empty:
+        raise ValueError("No selected paired observations remain for evaluation.")
+
+    summary_rows = []
+    for measured, physics, hybrid, label in (
+        ("Rho_M", "Rho_Physics_kg_m3", "Rho_Hybrid_kg_m3", "Density"),
+        ("C_M", "C_Physics_m_s", "C_Hybrid_m_s", "Sound velocity"),
+    ):
+        physics_row = metric_row(selected[measured], selected[physics], f"{label} - physics")
+        hybrid_row = metric_row(selected[measured], selected[hybrid], f"{label} - hybrid")
+        summary_rows.extend([physics_row, hybrid_row])
+    summary = pd.DataFrame(summary_rows)
+
+    phases = phase_evaluation_summary(corrected)
+    phase_metrics = phase_accuracy_metrics(phases)
+    output = automatic_output("evaluate", raw, args.model.resolve())
+    comparison_path = output / "hybrid_model_comparison.csv"
+    summary_path = output / "hybrid_accuracy_summary.csv"
+    evaporation_path = output / "evaluation_evaporation_summary.csv"
+    corrected.to_csv(comparison_path, index=False)
+    summary.to_csv(summary_path, index=False)
+    pd.DataFrame([item.__dict__ for item in summaries]).to_csv(evaporation_path, index=False)
+    phases.to_csv(output / "hybrid_evaluation_by_phase.csv", index=False)
+    phase_metrics.to_csv(output / "hybrid_phase_accuracy_summary.csv", index=False)
+    if len(reference_rows):
+        reference_rows.to_csv(output / "excluded_reference_measurements.csv", index=False)
+    metadata = {
+        "operation": "evaluate", "script_version": SCRIPT_VERSION,
+        "interpolation": model["interpolation"],
+        "calibration_strength": strength,
+        "stored_calibration_strength": model_calibration_strength(model),
+        "model_path": str(args.model.resolve()), "model_sha256": sha256_file(args.model.resolve()),
+        "evaluation_data": source_manifest(raw), "output_directory": str(output),
+        "quality_mode": args.quality_mode,
+        "evaporation_model": protocol_manifest,
+        "minimum_points_per_phase": args.minimum_points_per_phase,
+        "settling_fraction": args.settling_fraction,
+        "low_noise_keep_fraction": args.low_noise_keep_fraction,
+        "reference_rows_excluded": len(reference_rows),
+        "training_overlap_selected_rows": int(selected["Training_Overlap"].sum()),
+        "training_overlap_check_available": bool(training_keys),
+        "legacy_possible_overlap": any(
+            (str(node.get("Source_File")), int(node.get("ProbeNr", -1)))
+            in set(zip(raw["Source_File"].astype(str), raw["ProbeNr"].astype(int)))
+            for node in model["nodes"]
+        ) if not training_keys else False,
+        "calculator_path": str(args.calculator.resolve()),
+        "calculator_sha256": sha256_file(args.calculator.resolve()),
+    }
+    save_json(metadata, output / "run_manifest.json")
+    plots = create_phase_plots(phases, output)
+    report = write_evaluation_report(phases, phase_metrics, metadata, plots, output)
+
+    print("\nEvaluation summary: equal weight per phase mean")
+    print(f"Calibration strength: {strength:g}")
+    print("-" * 100)
+    print(phase_metrics.round(6).to_string(index=False))
+    extrapolated = int(corrected["Calibration_Extrapolation"].fillna(False).sum())
+    if extrapolated:
+        print(f"WARNING: {extrapolated} rows are outside the calibration bounding box.")
+    mg_rows = corrected["MG_wt_pct_eff"].fillna(0.0).gt(0.0)
+    if mg_rows.any() and "MG_wt_pct" not in model_composition_axes(model):
+        print(
+            "WARNING: Physics includes MG, but the residual field has no MG axis; "
+            f"{int(mg_rows.sum())} MG-containing rows used legacy residual interpolation."
+        )
+    print(f"\nSaved comparison: {comparison_path}")
+    print(f"Saved summary:    {summary_path}")
+    print(f"Open graphical report: {report}")
+    print(f"Selected rows: {len(selected)} / {len(corrected)}; usable phases: "
+          f"{int(phases['N_Selected'].gt(0).sum())}.")
+    if metadata["training_overlap_selected_rows"]:
+        print("WARNING: Evaluation includes training acquisitions; this is not an independent test.")
+    elif not training_keys:
+        print("NOTE: This older field cannot be checked reliably for training-data overlap.")
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(path.resolve())
+
+
+def _ask_choice(title: str, options: list[str], default: int = 1) -> int:
+    print(f"\n{title}")
+    for number, label in enumerate(options, start=1):
+        suffix = " [default]" if number == default else ""
+        print(f"  {number}) {label}{suffix}")
+    while True:
+        answer = input(f"Choice [{default}]: ").strip()
+        if not answer:
+            return default
+        try:
+            choice = int(answer)
+        except ValueError:
+            print("Please enter one of the displayed numbers.")
+            continue
+        if 1 <= choice <= len(options):
+            return choice
+        print("Please enter one of the displayed numbers.")
+
+
+def _ask_float_value(
+    prompt: str, default: float | None = None, minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    default_text = f" [{default:g}]" if default is not None else ""
+    while True:
+        answer = input(f"{prompt}{default_text}: ").strip().replace(",", ".")
+        if not answer and default is not None:
+            return float(default)
+        try:
+            value = float(answer)
+        except ValueError:
+            print("Please enter a number, for example 1.5.")
+            continue
+        if not np.isfinite(value):
+            print("The number must be finite.")
+            continue
+        if minimum is not None and value < minimum:
+            print(f"The value must be at least {minimum:g}.")
+            continue
+        if maximum is not None and value > maximum:
+            print(f"The value must be at most {maximum:g}.")
+            continue
+        return value
+
+
+def _ask_path(prompt: str, default: Path | None = None) -> Path:
+    default_text = f" [{_display_path(default)}]" if default is not None else ""
+    while True:
+        answer = input(f"{prompt}{default_text}: ").strip().strip('"')
+        if not answer and default is not None:
+            return default
+        if answer:
+            return Path(answer).expanduser()
+        print("Please enter a path.")
+
+
+def _discover_measurement_csvs() -> list[Path]:
+    if not DEFAULT_INPUT.is_dir():
+        return []
+    return discover_measurement_files(DEFAULT_INPUT)
+
+
+def _choose_csv_files() -> list[Path]:
+    discovered = _discover_measurement_csvs()
+    if not discovered:
+        while True:
+            path = _ask_path("Path to a CSV file or directory")
+            try:
+                return resolve_csv_files([path])
+            except FileNotFoundError as exc:
+                print(f"Could not use that path: {exc}")
+
+    print("\nMeasurement CSV files found:")
+    for number, path in enumerate(discovered, start=1):
+        print(f"  {number}) {_display_path(path)}")
+    print("  M) Enter another path manually")
+    while True:
+        answer = input("Select file number(s), e.g. 1 or 1,2 [1]: ").strip()
+        if not answer:
+            return [discovered[0]]
+        if answer.lower() == "m":
+            path = _ask_path("Path to a CSV file or directory")
+            try:
+                return resolve_csv_files([path])
+            except FileNotFoundError as exc:
+                print(f"Could not use that path: {exc}")
+                continue
+        try:
+            numbers = [int(part.strip()) for part in answer.split(",")]
+        except ValueError:
+            print("Enter displayed numbers separated by commas, or M.")
+            continue
+        if numbers and all(1 <= number <= len(discovered) for number in numbers):
+            return list(dict.fromkeys(discovered[number - 1] for number in numbers))
+        print("At least one selected number is outside the displayed range.")
+
+
+def _available_samples(paths: list[Path]) -> list[int]:
+    samples: set[int] = set()
+    for path in paths:
+        try:
+            frame = pd.read_csv(path, comment="/", skipinitialspace=True, usecols=["ProbeNr"])
+            values = pd.to_numeric(frame["ProbeNr"], errors="coerce").dropna().astype(int)
+            samples.update(values.tolist())
+        except (ValueError, OSError) as exc:
+            print(f"WARNING: Could not inspect ProbeNr in {path.name}: {exc}")
+    return sorted(samples)
+
+
+def _ask_samples(paths: list[Path], prefer_sample_three: bool = True) -> list[str]:
+    available = _available_samples(paths)
+    if not available:
+        print("No ProbeNr values could be read; all rows will be used.")
+        return ["all"]
+    print("\nProbeNr values found in the selected file(s):")
+    print("  " + ", ".join(str(value) for value in available))
+    default = "3" if prefer_sample_three and 3 in available else "all"
+    while True:
+        answer = input(
+            f"ProbeNr to use, e.g. 3 or 1,3; enter 'all' for all [{default}]: "
+        ).strip()
+        if not answer:
+            answer = default
+        if answer.lower() == "all":
+            return ["all"]
+        try:
+            chosen = [int(part.strip()) for part in answer.split(",")]
+        except ValueError:
+            print("Enter available ProbeNr values separated by commas, or 'all'.")
+            continue
+        unavailable = sorted(set(chosen) - set(available))
+        if unavailable:
+            print(f"These ProbeNr values are not present: {unavailable}")
+            continue
+        return [str(value) for value in dict.fromkeys(chosen)]
+
+
+def _discover_models() -> list[Path]:
+    """Offer this method's fields, keeping older IDW fields out of the wizard."""
+    results = CALIBRATION_ROOT
+    if not results.is_dir():
+        return []
+    return sorted(
+        results.glob("**/calibration_field.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def _choose_model() -> Path:
+    discovered = _discover_models()
+    if not discovered:
+        while True:
+            path = _ask_path("Path to calibration_field.json")
+            if path.is_file():
+                return path
+            print("That model file does not exist.")
+
+    print("\nCalibration fields found (newest first):")
+    for number, path in enumerate(discovered, start=1):
+        print(f"  {number}) {_display_path(path)}")
+    print("  M) Enter another path manually")
+    while True:
+        answer = input("Select calibration field [1]: ").strip()
+        if not answer:
+            return discovered[0]
+        if answer.lower() == "m":
+            path = _ask_path("Path to calibration_field.json")
+            if path.is_file():
+                return path
+            print("That model file does not exist.")
+            continue
+        try:
+            number = int(answer)
+        except ValueError:
+            print("Enter one of the displayed numbers, or M.")
+            continue
+        if 1 <= number <= len(discovered):
+            return discovered[number - 1]
+        print("Please enter one of the displayed numbers.")
+
+
+def interactive_arguments() -> list[str]:
+    """Run a beginner-friendly wizard and return normal argparse tokens."""
+    print("=" * 72)
+    print(f"Residual calibration field {SCRIPT_VERSION} - guided mode")
+    print("=" * 72)
+    command_choice = _ask_choice(
+        "What would you like to do?",
+        [
+            "Build a new calibration field",
+            "Predict one composition with an existing field",
+            "Evaluate an existing field against a measurement CSV",
+        ],
+        default=1,
+    )
+
+    if command_choice == 1:
+        paths = _choose_csv_files()
+        samples = _ask_samples(paths)
+        quality_choice = _ask_choice(
+            "Which measurements should be used?",
+            [
+                "Automatic quality selection (recommended)",
+                "Only rows with valid/stable quality flags",
+                "Late low-noise rows",
+                "All finite SensOK rows",
+            ],
+            default=1,
+        )
+        quality_modes = {1: "auto", 2: "flags", 3: "low-noise", 4: "all"}
+        print("\nGaussian bandwidth controls smoothing in scaled composition coordinates.")
+        print("Larger values give stronger smoothing. The default is a starting value.")
+        bandwidth = _ask_float_value("Gaussian bandwidth", default=DEFAULT_BANDWIDTH,
+                                     minimum=0.0)
+        while bandwidth <= 0:
+            print("Gaussian bandwidth must be greater than zero.")
+            bandwidth = _ask_float_value("Gaussian bandwidth", default=DEFAULT_BANDWIDTH,
+                                         minimum=0.0)
+        print("Calibration strength: 0 = physics only, 1 = full calibration correction.")
+        strength = _ask_float_value("Calibration strength", default=1.0, minimum=0.0, maximum=1.0)
+        print(f"\nOutput root (automatic run folder): {CALIBRATION_ROOT}")
+        print("\nStarting calibration build with the selected settings ...")
+        return (
+            ["build", "--input"]
+            + [str(path) for path in paths]
+            + ["--samples"]
+            + samples
+            + ["--quality-mode", quality_modes[quality_choice]]
+            + ["--bandwidth", str(bandwidth)]
+            + ["--calibration-strength", str(strength)]
+        )
+
+    if command_choice == 2:
+        model = _choose_model()
+        strength = _ask_float_value("Calibration strength", default=model_calibration_strength(load_model(model)),
+                                    minimum=0.0, maximum=1.0)
+        al = _ask_float_value("Al content in wt-%", minimum=0.0)
+        ipa = _ask_float_value("IPA content in wt-%", minimum=0.0)
+        pg = _ask_float_value("PG content in wt-%", minimum=0.0)
+        mg = _ask_float_value("MG content in wt-%", default=0.0, minimum=0.0)
+        while al + ipa + pg + mg > 100:
+            print(
+                "Al + IPA + PG + MG must not exceed 100 wt-%. "
+                "Please enter the values again."
+            )
+            al = _ask_float_value("Al content in wt-%", minimum=0.0)
+            ipa = _ask_float_value("IPA content in wt-%", minimum=0.0)
+            pg = _ask_float_value("PG content in wt-%", minimum=0.0)
+            mg = _ask_float_value("MG content in wt-%", default=0.0, minimum=0.0)
+        temperature = _ask_float_value("Temperature in deg C", default=25.0)
+        print("\nCalculating the hybrid prediction ...")
+        return [
+            "predict",
+            "--model",
+            str(model),
+            "--al",
+            str(al),
+            "--ipa",
+            str(ipa),
+            "--pg",
+            str(pg),
+            "--mg",
+            str(mg),
+            "--temperature",
+            str(temperature),
+            "--calibration-strength",
+            str(strength),
+        ]
+
+    model = _choose_model()
+    strength = _ask_float_value("Calibration strength", default=model_calibration_strength(load_model(model)),
+                                minimum=0.0, maximum=1.0)
+    paths = _choose_csv_files()
+    samples = _ask_samples(paths, prefer_sample_three=False)
+    print(f"\nOutput root (automatic run folder): {EVALUATION_ROOT}")
+    print("Evaporation uses the stored RPM protocol and starts at initial stirring.")
+    print("Phase summaries use automatic quality selection; raw rows are retained.")
+    print("\nStarting external CSV evaluation ...")
+    return (
+        ["evaluate", "--model", str(model), "--input"]
+        + [str(path) for path in paths]
+        + ["--samples"]
+        + samples
+        + ["--calibration-strength", str(strength)]
+    )
+
+
+def main() -> None:
+    if len(sys.argv) == 1:
+        try:
+            sys.argv.extend(interactive_arguments())
+        except (EOFError, KeyboardInterrupt):
+            print("\nGuided mode cancelled.")
+            raise SystemExit(130)
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        if args.command == "build":
+            build_command(args)
+        elif args.command == "predict":
+            predict_command(args)
+        elif args.command == "evaluate":
+            evaluate_command(args)
+        else:
+            parser.error(f"Unknown command: {args.command}")
+    except (FileNotFoundError, ValueError, ImportError, RuntimeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
+if __name__ == "__main__":
+    main()

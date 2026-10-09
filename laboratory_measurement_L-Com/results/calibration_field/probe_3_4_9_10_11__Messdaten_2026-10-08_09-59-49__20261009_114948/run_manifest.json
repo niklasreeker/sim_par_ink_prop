@@ -1,0 +1,19 @@
+{
+  "operation": "build",
+  "output_directory": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_3_4_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_114948",
+  "training_data": [
+    {
+      "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Messdaten_2026-10-08_09-59-49.csv",
+      "filename": "Messdaten_2026-10-08_09-59-49.csv",
+      "sha256": "fac2203aed47fa9f4770b6030689f83fe3ac335a26b320483119e201b8ce513b",
+      "samples": [
+        3,
+        4,
+        9,
+        10,
+        11
+      ]
+    }
+  ],
+  "reference_rows_excluded": 0
+}

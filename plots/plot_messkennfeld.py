@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """Dichte-Schall-Kennfelder mit gefuehrter Eingabe erstellen.
 
 Diese Datei im Ordner sim_par_ink_prop/plots ablegen und starten:
@@ -11,6 +11,12 @@ Ohne Eingabedialog, z. B.:
     python plot_messkennfeld.py --model both --al-min 1.7 --al-max 2.2 \
         --ipa-min 2.8 --ipa-max 5.3 --temperature 23 --no-show
 
+Im Eingabedialog kann das Kalibrierfeld aus den gespeicherten Feldern
+ausgewaehlt werden (IDW oder Gaussian Kernel Regression). Mit
+--calibration-field PFAD laesst sich direkt eine calibration_field.json oder
+ihr Ordner angeben. Bei vollstaendig gesetzten Argumenten ohne Feldpfad
+wird weiterhin das bisherige Standardfeld verwendet.
+
 Standard: PG = 2 * Al; MG = Al / 8; Wasser = 100 - Al - PG - MG - IPA.
 Alle Konzentrationen sind Massenprozente der fertigen Tinte. "Al" bezeichnet
 den vollstaendigen Aluminiumpigmentanteil (inklusive Verkapselung), wie beim
@@ -20,8 +26,9 @@ Fuer die gerundete Rezeptur des ersten Diagramms: --pg-per-al 2.0055248619
 --mg-per-al 0.1215469613 (Al:PG:MG = 1.81:3.63:0.22).
 
 Physik: direkte Aufrufe des vorhandenen InkCalculator, keine Ersatzformeln.
-Hybrid: Physik + gespeicherte A(w)-Korrektur. Die qualitaetsgewichtete IDW
-entspricht idw_residual() in residual_calibration_field.py, Schema v3.
+Hybrid: Physik + gespeicherte A(w)-Korrektur. Unterstuetzt werden die
+qualitaetsgewichtete IDW (Schema v3) und Gaussian Kernel Regression ueber
+alle Stuetzstellen (Schema v4). Die gespeicherten Verfahrensparameter gelten.
 Die Korrektur wird bei jeder Zusammensetzung neu berechnet, nicht als
 konstanter Offset. Temperatur wirkt im Physikmodell; A(w) hat keinen
 zusaetzlich gelernten Temperaturterm. Ein Kennfeldplot beweist keine
@@ -51,6 +58,9 @@ import warnings
 FIELD_RELATIVE = Path("laboratory_measurement_L-Com/results/calibration_field") / (
     "probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809/calibration_field.json"
 )
+IDW_METHOD = "scaled_inverse_distance_weighting"
+GAUSSIAN_METHOD = "scaled_gaussian_kernel_regression"
+SUPPORTED_FIELDS = {3: IDW_METHOD, 4: GAUSSIAN_METHOD}
 TITLES = {"physics": "Ink Calculator (Physikmodell)",
           "hybrid": "Hybrides Kalibrierfeld: Physik + A(w)"}
 
@@ -192,17 +202,21 @@ def equivalent_hashes(path: Path) -> set[str]:
 
 
 class CalibrationField:
-    """Schema-v3 IDW, same neighbors and property-specific quality weights."""
+    """Evaluate saved IDW or Gaussian fields with their original weighting."""
 
     def __init__(self, path: Path, repo: Path):
         import numpy as np
         import pandas as pd
 
         self.path = path.resolve()
-        self.model = json.loads(path.read_text(encoding="utf-8-sig"))
+        self.model = json.loads(self.path.read_text(encoding="utf-8-sig"))
+        interpolation = self.model.get("interpolation", {})
+        self.method = interpolation.get("method")
         if (self.model.get("schema") != "ink-residual-calibration-field"
-                or self.model.get("schema_version") != 3):
-            raise ValueError("Es wird ein ink-residual-calibration-field mit Schema-Version 3 benoetigt.")
+                or self.model.get("schema_version") not in SUPPORTED_FIELDS
+                or self.method != SUPPORTED_FIELDS[self.model["schema_version"]]):
+            raise ValueError("Unterstuetzt werden IDW-Felder (Schema 3) und "
+                             "Gaussian-Kernel-Felder (Schema 4).")
         if not self.model.get("nodes"):
             raise ValueError("Das Kalibrierfeld enthaelt keine Knoten.")
         self.axes = self.model["composition_axes"]
@@ -213,22 +227,42 @@ class CalibrationField:
         self.coordinates = self.nodes[self.axes].to_numpy(float)
         self.minimum = self.coordinates.min(axis=0)
         self.maximum = self.coordinates.max(axis=0)
-        interpolation = self.model["interpolation"]
         self.scale = np.asarray(interpolation["scale"], dtype=float)
-        self.power = float(interpolation.get("power", 2.0))
-        requested = int(interpolation.get("neighbors", 4))
-        self.count = len(self.nodes) if requested <= 0 else min(requested, len(self.nodes))
         if (self.scale.shape != (len(self.axes),) or np.any(~np.isfinite(self.scale))
-                or np.any(self.scale <= 0) or not math.isfinite(self.power) or self.power <= 0
+                or np.any(self.scale <= 0)
                 or not np.isfinite(self.coordinates).all()):
-            raise ValueError("Ungueltige IDW-Parameter oder Knotenkoordinaten.")
+            raise ValueError("Ungueltige Kalibrierfeld-Skalierung oder Knotenkoordinaten.")
+        if self.method == IDW_METHOD:
+            self.power = float(interpolation.get("power", 2.0))
+            requested = int(interpolation.get("neighbors", 4))
+            self.count = len(self.nodes) if requested <= 0 else min(requested, len(self.nodes))
+            if not math.isfinite(self.power) or self.power <= 0:
+                raise ValueError("Ungueltiger IDW-Exponent.")
+            self.description = f"IDW ({self.count} Stuetzstellen je Punkt)"
+        else:
+            self.bandwidth = float(interpolation["bandwidth"])
+            if (not math.isfinite(self.bandwidth) or self.bandwidth <= 0
+                    or interpolation.get("node_selection") != "all"
+                    or interpolation.get("quality_weighting") != "fixed_inverse_squared_standard_error"
+                    or interpolation.get("quality_floor_fraction") != 0.25
+                    or interpolation.get("quality_absolute_floor") != 1e-9):
+                raise ValueError("Ungueltige Gaussian-Kernel-Parameter.")
+            self.count = len(self.nodes)
+            self.description = f"Gaussian Kernel Regression (h={self.bandwidth:g}, alle Stuetzstellen)"
         self.properties = []
         for value_col, se_col in [("A_Rho_kg_m3", "A_Rho_SE_kg_m3"), ("A_C_m_s", "A_C_SE_m_s")]:
             values = self.nodes[value_col].to_numpy(float)
             se = pd.to_numeric(self.nodes[se_col], errors="coerce").to_numpy(float)
             if not np.isfinite(values).all():
                 raise ValueError(f"Nichtendliche Korrekturwerte: {value_col}")
-            self.properties.append((values, se))
+            log_quality = None
+            if self.method == GAUSSIAN_METHOD:
+                # Keep quality weights fixed across all query compositions.
+                finite = se[np.isfinite(se) & (se >= 0)]
+                fallback = float(np.median(finite)) if finite.size else 1.0
+                se = np.where(np.isfinite(se) & (se >= 0), se, fallback)
+                log_quality = -2.0 * np.log(np.maximum(se, max(fallback * .25, 1e-9)))
+            self.properties.append((values, se, log_quality))
         provenance = self.model.get("calculator", {})
         inputs = {repo / "ink_calculator.py": provenance.get("sha256")}
         inputs.update({repo / "tables_parameters" / name: expected
@@ -243,20 +277,35 @@ class CalibrationField:
 
         lookup = dict(zip(("Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct"), (al, ipa, pg, mg)))
         target = np.asarray([lookup[axis] for axis in self.axes])
-        distances = np.linalg.norm((self.coordinates - target) / self.scale, axis=1)
-        indexes = np.argsort(distances)[:self.count]
-        if distances[indexes[0]] < 1e-12:
-            indexes = indexes[:1]
-            geometric = np.ones(1)
+        if not np.isfinite(target).all():
+            raise ValueError("Die Zusammensetzung muss endlich sein.")
+        if self.method == GAUSSIAN_METHOD:
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                squared = np.sum(((self.coordinates - target) / self.scale)**2, axis=1)
+            if not np.isfinite(squared).all():
+                raise ValueError("Die skalierten Abstaende sind numerisch zu gross.")
+            with np.errstate(over="ignore"):
+                log_geometry = -0.5 * (squared - squared.min()) / self.bandwidth / self.bandwidth
         else:
-            geometric = 1.0 / np.maximum(distances[indexes], 1e-12) ** self.power
+            distances = np.linalg.norm((self.coordinates - target) / self.scale, axis=1)
+            indexes = np.argsort(distances)[:self.count]
+            if distances[indexes[0]] < 1e-12:
+                indexes = indexes[:1]
+                geometric = np.ones(1)
+            else:
+                geometric = 1.0 / np.maximum(distances[indexes], 1e-12) ** self.power
         estimates, uncertainties = [], []
-        for values_all, se_all in self.properties:
-            values, se = values_all[indexes], se_all[indexes]
-            finite = se[np.isfinite(se) & (se >= 0)]
-            fallback = float(np.median(finite)) if finite.size else 1.0
-            se = np.where(np.isfinite(se) & (se >= 0), se, fallback)
-            weights = geometric / np.maximum(se, max(fallback * .25, 1e-9)) ** 2
+        for values_all, se_all, log_quality in self.properties:
+            if self.method == GAUSSIAN_METHOD:
+                values, se = values_all, se_all
+                log_weights = log_geometry + log_quality
+                weights = np.exp(log_weights - log_weights.max())
+            else:
+                values, se = values_all[indexes], se_all[indexes]
+                finite = se[np.isfinite(se) & (se >= 0)]
+                fallback = float(np.median(finite)) if finite.size else 1.0
+                se = np.where(np.isfinite(se) & (se >= 0), se, fallback)
+                weights = geometric / np.maximum(se, max(fallback * .25, 1e-9)) ** 2
             weights /= weights.sum()
             estimate = float(np.sum(weights * values))
             estimates.append(estimate)
@@ -268,18 +317,68 @@ class CalibrationField:
         return estimates, uncertainties, outside
 
 
-def field_path(args, repo: Path, interactive: bool) -> Path:
-    path = args.calibration_field or repo / FIELD_RELATIVE
+def discover_calibration_fields(repo: Path) -> list[tuple[Path, str]]:
+    """List supported saved fields from both calibration workflows."""
+    results = repo / "laboratory_measurement_L-Com" / "results"
+    fields = []
+    for path in results.rglob("calibration_field.json"):
+        try:
+            model = json.loads(path.read_text(encoding="utf-8-sig"))
+            interpolation = model.get("interpolation", {})
+            method = interpolation.get("method")
+            if (model.get("schema") != "ink-residual-calibration-field"
+                    or model.get("schema_version") not in SUPPORTED_FIELDS
+                    or method != SUPPORTED_FIELDS[model["schema_version"]]
+                    or not model.get("nodes")):
+                continue
+            label = (f"Gaussian Kernel Regression, h={float(interpolation['bandwidth']):g}"
+                     if method == GAUSSIAN_METHOD else "IDW")
+            fields.append((path.resolve(), f"{label}; {len(model['nodes'])} Stuetzstellen"))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return sorted(fields, key=lambda item: item[0].stat().st_mtime, reverse=True)
+
+
+def normalize_field_path(path: Path) -> Path:
+    path = path.expanduser()
     if path.is_dir():
         path /= "calibration_field.json"
+    return path.resolve()
+
+
+def field_path(args, repo: Path, interactive: bool) -> Path:
+    if args.calibration_field is None and interactive:
+        fields = discover_calibration_fields(repo)
+        if fields:
+            print("\nVerfuegbare Kalibrierfelder (neueste zuerst):")
+            for number, (path, description) in enumerate(fields, start=1):
+                print(f"  {number}) {path.parent.name}")
+                print(f"     {description}")
+                print(f"     {path.relative_to(repo)}")
+            print("  M) Anderen Dateipfad oder Ordner eingeben")
+            while True:
+                answer = input("Kalibrierfeld auswaehlen [1]: ").strip() or "1"
+                if answer.lower() == "m":
+                    break
+                if answer.isdecimal() and 1 <= int(answer) <= len(fields):
+                    return fields[int(answer) - 1][0]
+                print("Bitte eine der angezeigten Nummern oder M eingeben.")
+        else:
+            print("\nKeine gespeicherten IDW- oder Gaussian-Kernel-Felder gefunden.")
+        while True:
+            answer = input("Pfad zur calibration_field.json oder ihrem Ordner: ").strip().strip('"')
+            if answer:
+                path = normalize_field_path(Path(answer))
+                if path.is_file():
+                    return path
+            print("Diese Kalibrierfelddatei wurde nicht gefunden.")
+    path = normalize_field_path(args.calibration_field or repo / FIELD_RELATIVE)
     while not path.is_file():
         if not interactive:
             raise FileNotFoundError(f"Kalibrierfeld nicht gefunden: {path}")
         print(f"\nKalibrierfeld nicht gefunden: {path}")
         answer = input("Pfad zur calibration_field.json: ").strip().strip('"')
-        path = Path(answer).expanduser()
-        if path.is_dir():
-            path /= "calibration_field.json"
+        path = normalize_field_path(Path(answer))
     return path.resolve()
 
 
@@ -401,7 +500,7 @@ def label_lines(axis, lines, colors) -> None:
         placed.append(bounds)
 
 
-def create_plots(data, settings: Settings, output: Path, run_id: str):
+def create_plots(data, settings: Settings, output: Path, run_id: str, field=None):
     import matplotlib.pyplot as plt
 
     plt.style.use("default")
@@ -418,7 +517,10 @@ def create_plots(data, settings: Settings, output: Path, run_id: str):
             axis.plot(line["density"], line["sound"],
                       color=colors[(line["family"], line["constant"])],
                       linestyle="--" if line["family"] == "al" else "-", linewidth=1.3)
-        axis.set_title(TITLES[name])
+        title = TITLES[name]
+        if name == "hybrid" and field is not None:
+            title += "\n" + field.description
+        axis.set_title(title)
         axis.set_xlabel("Dichte [kg/m³]")
         axis.set_ylabel("Schallgeschwindigkeit [m/s]")
         axis.grid(True, alpha=.25)
@@ -461,7 +563,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--lines", type=int, default=7, help="Linien je Familie (Standard: 7)")
     result.add_argument("--points", type=int, default=151, help="Stuetzpunkte je Linie (Standard: 151)")
     result.add_argument("--repo-root", type=Path)
-    result.add_argument("--calibration-field", type=Path, help="Alternativer Schema-v3-Kalibrierfeldpfad")
+    result.add_argument("--calibration-field", type=Path,
+                        help="Gespeichertes IDW- oder Gaussian-Kernel-Feld (JSON oder Ordner)")
     result.add_argument("--output-dir", type=Path, help="Zielordner (Standard: messkennfeld neben dem Skript)")
     result.add_argument("--no-show", action="store_true", help="Dateien speichern, Plotfenster nicht oeffnen")
     return result
@@ -482,13 +585,14 @@ def main(argv=None) -> int:
                               ("model", "al_min", "al_max", "ipa_min", "ipa_max", "temperature"))
             field = CalibrationField(field_path(args, repo, interactive), repo)
             print(f"Kalibrierfeld: {field.path}")
+            print(f"Verfahren: {field.description}")
         print(f"\nBerechne Al {settings.al_min:g}–{settings.al_max:g} %, "
               f"IPA {settings.ipa_min:g}–{settings.ipa_max:g} %, T={settings.temperature:g} Grad C ...")
         data, rows, messages, outside, unique_count = calculate_lines(calculator, field, settings)
         output = args.output_dir or Path(__file__).resolve().parent / "messkennfeld"
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         output.mkdir(parents=True, exist_ok=True)
-        figures, saved = create_plots(data, settings, output, run_id)
+        figures, saved = create_plots(data, settings, output, run_id, field=field)
         csv_path = output / f"kennfeldwerte_{run_id}.csv"
         with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -499,11 +603,12 @@ def main(argv=None) -> int:
             files.append(field.path)
         metadata = dict(settings=asdict(settings), repository=str(repo),
                         calibration_field=str(field.path) if field else None,
+                        calibration_interpolation=field.model["interpolation"] if field else None,
                         source_sha256={str(path): sha256(path) for path in files},
                         unique_compositions=unique_count, outside_axis_counts=outside,
                         model_warnings=messages,
                         correction="physics(T,w) + A(w)" if field else "physics(T,w)",
-                        uncertainty_note="A_*_Uncertainty beschreibt die Streuung der IDW-Korrektur, nicht die gesamte Messunsicherheit.")
+                        uncertainty_note="A_*_Uncertainty beschreibt die Streuung der Kalibrierkorrektur, nicht die gesamte Messunsicherheit.")
         metadata_path = output / f"einstellungen_{run_id}.json"
         metadata_path.write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")

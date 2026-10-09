@@ -1,0 +1,193 @@
+{
+  "sensors": {
+    "density": 1007.8,
+    "sound": 1540.7,
+    "temperature": 21.4
+  },
+  "search": {
+    "al_min": 0.0,
+    "al_max": 32.0,
+    "ipa_min": 0.0,
+    "ipa_max": 100.0,
+    "pg_per_al": 2.0,
+    "mg_per_al": 0.125,
+    "rho_tolerance": 0.0001,
+    "sound_tolerance": 0.0001,
+    "max_evaluations": 250
+  },
+  "calibration_field": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+  "source_sha256": {
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\ink_calculator.py": "cc8fb9bf7c9c1c018a266fd8e6dd1287c63ce28dadd41ffebef75a63120b43b8",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_density.csv": "35547d43bd0c1c424a8020b26bd3d88821901ded85bd41805b4bd4cdcd338961",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_density_Ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_density.csv": "4866e0b39c3cbf8e49f2c7f4a91396ba027a742f3c8cfc99eee9e6cbea3d113f",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_density_Ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound.csv": "ea6127ca847d1d2714fe237c7dca9db0fd208c5f09ff50953e56f9bbb1d27dd7",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound_claude.csv": "caa95f6a2ee8177f495ba382681756c2d0f04696a4000b52fb0a31e2423560c7",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\tables_parameters\\pg_viscosity.csv": "8ecde964d39204748e897f86b4c930407f3495b3fa6a425c9cbffdee38066ee0",
+    "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json": "5f08a5c244f8174a360f9fd2ab9e6ee47567aafa60f7cdf0551f5d3db7b2663e"
+  },
+  "models": {
+    "physics": {
+      "status": "multiple_matches",
+      "solutions": [
+        {
+          "composition": {
+            "Al": 1.9686133304823428,
+            "IPA": 3.839395334525803,
+            "PG": 3.9372266609646855,
+            "MG": 0.24607666631029285,
+            "Water": 90.00868800771688
+          },
+          "solids_wt_pct": 2.2146899967926355,
+          "density": 1007.7999999999998,
+          "sound": 1540.7,
+          "density_difference": -1.1368683772161603e-13,
+          "sound_difference": 0.0,
+          "physics_density": 1007.7999999999998,
+          "physics_sound": 1540.7,
+          "correction_density": 0.0,
+          "correction_sound": 0.0,
+          "correction_density_spread": 0.0,
+          "correction_sound_spread": 0.0,
+          "outside_axes": [],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1368683772161603e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1007.7999999999998,
+          "base_model_sound": 1540.7,
+          "offset_corrected_sensor_density": 1007.8,
+          "offset_corrected_sensor_sound": 1540.7
+        },
+        {
+          "composition": {
+            "Al": 6.091026177610126,
+            "IPA": 21.794250069248925,
+            "PG": 12.182052355220252,
+            "MG": 0.7613782722012657,
+            "Water": 59.17129312571942
+          },
+          "solids_wt_pct": 6.852404449811392,
+          "density": 1007.7999999999998,
+          "sound": 1540.7,
+          "density_difference": -1.1368683772161603e-13,
+          "sound_difference": 0.0,
+          "physics_density": 1007.7999999999998,
+          "physics_sound": 1540.7,
+          "correction_density": 0.0,
+          "correction_sound": 0.0,
+          "correction_density_spread": 0.0,
+          "correction_sound_spread": 0.0,
+          "outside_axes": [],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1368683772161603e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1007.7999999999998,
+          "base_model_sound": 1540.7,
+          "offset_corrected_sensor_density": 1007.8,
+          "offset_corrected_sensor_sound": 1540.7
+        }
+      ],
+      "best_approximation": null,
+      "starts_tried": 87,
+      "starts_with_result": 87,
+      "failed_starts": 0,
+      "model_messages": [],
+      "search_complete_proof": false
+    },
+    "hybrid": {
+      "status": "multiple_matches",
+      "solutions": [
+        {
+          "composition": {
+            "Al": 1.975750893995275,
+            "IPA": 3.511913448537782,
+            "PG": 3.95150178799055,
+            "MG": 0.24696886174940938,
+            "Water": 90.31386500772699
+          },
+          "solids_wt_pct": 2.2227197557446843,
+          "density": 1007.8,
+          "sound": 1540.7,
+          "density_difference": 0.0,
+          "sound_difference": 0.0,
+          "physics_density": 1008.3917203164572,
+          "physics_sound": 1537.8082612326489,
+          "correction_density": -0.5917203164571678,
+          "correction_sound": 2.891738767351149,
+          "correction_density_spread": 0.13321375163976146,
+          "correction_sound_spread": 0.2937866650387668,
+          "outside_axes": [
+            "MG"
+          ],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 0.0,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1007.8,
+          "base_model_sound": 1540.7,
+          "offset_corrected_sensor_density": 1007.8,
+          "offset_corrected_sensor_sound": 1540.7
+        },
+        {
+          "composition": {
+            "Al": 6.271654545649232,
+            "IPA": 22.09792593416662,
+            "PG": 12.543309091298465,
+            "MG": 0.783956818206154,
+            "Water": 58.30315361067952
+          },
+          "solids_wt_pct": 7.055611363855387,
+          "density": 1007.8,
+          "sound": 1540.7,
+          "density_difference": 0.0,
+          "sound_difference": 0.0,
+          "physics_density": 1008.2775747138102,
+          "physics_sound": 1537.4049837556825,
+          "correction_density": -0.4775747138101746,
+          "correction_sound": 3.29501624431762,
+          "correction_density_spread": 0.12255542023315516,
+          "correction_sound_spread": 0.46324787384886723,
+          "outside_axes": [
+            "Al",
+            "IPA",
+            "PG",
+            "MG"
+          ],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 0.0,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1007.8,
+          "base_model_sound": 1540.7,
+          "offset_corrected_sensor_density": 1007.8,
+          "offset_corrected_sensor_sound": 1540.7
+        }
+      ],
+      "best_approximation": null,
+      "starts_tried": 113,
+      "starts_with_result": 113,
+      "failed_starts": 0,
+      "model_messages": [],
+      "search_complete_proof": false
+    }
+  },
+  "units": {
+    "composition": "wt-%",
+    "density": "kg/m3",
+    "sound": "m/s",
+    "temperature": "deg C"
+  },
+  "numerical_tolerance_is_measurement_uncertainty": false
+}

@@ -1,0 +1,45 @@
+{
+  "operation": "build",
+  "output_directory": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_3_4_5_6_7_8_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_132838",
+  "script_version": "1.0-gaussian-kernel-regression",
+  "interpolation": {
+    "method": "scaled_gaussian_kernel_regression",
+    "bandwidth": 0.3,
+    "node_selection": "all",
+    "quality_weighting": "fixed_inverse_squared_standard_error",
+    "quality_floor_fraction": 0.25,
+    "quality_absolute_floor": 1e-09,
+    "uncertainty_kind": "weighted_residual_spread_plus_node_variance",
+    "centre": [
+      1.8751834985197988,
+      3.8427827941582167,
+      4.469945043053572,
+      0.009320074225721436
+    ],
+    "scale": [
+      0.8668122852404918,
+      2.9602084305878793,
+      3.9555271874127214,
+      0.23970144789173428
+    ]
+  },
+  "training_data": [
+    {
+      "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\measurement_data\\Messdaten_2026-10-08_09-59-49.csv",
+      "filename": "Messdaten_2026-10-08_09-59-49.csv",
+      "sha256": "fac2203aed47fa9f4770b6030689f83fe3ac335a26b320483119e201b8ce513b",
+      "samples": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    }
+  ],
+  "reference_rows_excluded": 0
+}
