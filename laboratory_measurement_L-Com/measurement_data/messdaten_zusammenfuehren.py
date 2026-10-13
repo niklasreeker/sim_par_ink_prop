@@ -7,6 +7,8 @@ Ohne Argumente: interaktive Auswahl zum Erstellen/Erweitern.
 --files DATEI ...: nur diese Exporte importieren (beim ersten Mal plus Version 25).
 --dry-run: Import prüfen, ohne Dateien zu verändern.
 Die Roh-Exporte bleiben unverändert; _korrigiert-Dateien werden nicht importiert.
+Probe 901 wird wegen der fehlerhaften Aufzeichnungsrate vollständig übersprungen.
+Bereits importierte Messpunkte dieser Probe werden beim nächsten Import entfernt.
 Die gemeinsame CSV enthält deutsche Ortszeit (Europe/Berlin), einschließlich
 Sommer-/Winterzeit. Bestehende UTC-Gesamtdateien werden beim Import umgestellt.
 "Date" ist das deutsche Messdatum, "Deutsche Zeit" die zugehörige Uhrzeit.
@@ -45,6 +47,8 @@ REQUIRED_COLUMNS = {
 }
 TEXT_COLUMNS = {"Date", "UTC Time"}
 MASS_COLUMNS = {"m_SL120", "m_Wasser", "m_IPA", "m_PG", "m_MG"}
+# The entire acquisition of sample 901 is unusable (unintended rapid logging).
+EXCLUDED_PROBES = {901}
 
 
 @dataclass
@@ -56,6 +60,8 @@ class ImportResult:
     corrections: dict[str, int]
     changed: bool
     gaps: list[tuple[int, int]]
+    skipped: int = 0
+    removed: int = 0
 
 
 def export_version(path: Path) -> int:
@@ -268,6 +274,8 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
         corrections = {name: set() for name in ("PG", "ProbeNr", "Probe300")}
         columns = None
         added = duplicates = 0
+        skipped_keys = set()
+        removed = 0
         corrected_existing = False
         inputs = ([previous] if previous else []) + exports
         for path in inputs:
@@ -278,6 +286,11 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
                 raise ValueError(f"{path.name}: CSV-Spalten passen nicht zur gemeinsamen Messdatei.")
             for row in rows:
                 key = measurement_key(row)
+                if Decimal(row["ProbeNr"]) in EXCLUDED_PROBES:
+                    skipped_keys.add(key)
+                    if path == previous:
+                        removed += 1
+                    continue
                 fixes = correct_row(row)
                 for name in fixes:
                     corrections[name].add(key)
@@ -299,9 +312,11 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
                     added += 1
 
         rows = [merged[key] for key in sorted(merged, key=lambda key: (key[1], key[0]))]
-        sequences = sorted({key[0] for key in merged})
+        # Deliberately skipped records are not missing exports. Include their
+        # sequence numbers when checking the coverage of the available inputs.
+        sequences = sorted({key[0] for key in merged} | {key[0] for key in skipped_keys})
         gaps = [(left + 1, right - 1) for left, right in zip(sequences, sequences[1:]) if right > left + 1]
-        changed = previous is None or added > 0 or corrected_existing or migrate_time
+        changed = previous is None or added > 0 or corrected_existing or migrate_time or removed > 0
         timestamp = now or datetime.now(german_timezone())
         if timestamp.tzinfo is not None:
             timestamp = timestamp.astimezone(german_timezone())
@@ -309,12 +324,18 @@ def update_measurements(folder: Path = DEFAULT_FOLDER, sources: list[Path] | Non
         if changed and not dry_run:
             output = save_measurements(folder, previous, columns, rows, timestamp)
         return ImportResult(output, len(rows), added, duplicates,
-                            {name: len(keys) for name, keys in corrections.items()}, changed, gaps)
+                            {name: len(keys) for name, keys in corrections.items()}, changed, gaps,
+                            skipped=len(skipped_keys), removed=removed)
 
 
 def print_result(result: ImportResult, dry_run: bool) -> None:
     print(f"\n{'Vorschau' if dry_run else 'Messdatei'}: {result.path.name}")
     print(f"Messpunkte insgesamt: {result.total}; neu: {result.added}; bereits vorhanden: {result.duplicates}")
+    if result.skipped:
+        probes = ", ".join(str(probe) for probe in sorted(EXCLUDED_PROBES))
+        print(f"Probe {probes}: {result.skipped} Messpunkte absichtlich übersprungen.")
+    if result.removed:
+        print(f"Davon aus der bisherigen Gesamtdatei entfernt: {result.removed} Messpunkte.")
     print("Messzeiten: deutsche Ortszeit (Europe/Berlin; Sommer-/Winterzeit automatisch).")
     if any(result.corrections.values()):
         print("Bekannte Korrekturen beim Einlesen: " + ", ".join(f"{k}: {v}" for k, v in result.corrections.items()))
@@ -324,7 +345,8 @@ def print_result(result: ImportResult, dry_run: bool) -> None:
         print("Es wurde keine CSV-Datei verändert.")
     if result.gaps:
         shown = ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in result.gaps[:10])
-        print(f"Hinweis: Nicht vorhandene SeqNo: {shown}. Eventuell nie exportierte Messungen fehlen.")
+        print(f"Hinweis: Nicht vorhandene SeqNo: {shown}. Eventuell nie exportierte Messungen fehlen; "
+              "Lücken können auch durch absichtlich ausgeschlossene Proben entstehen.")
 
 
 def main(argv: list[str] | None = None) -> int:
