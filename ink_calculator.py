@@ -1982,10 +1982,10 @@ if __name__ == "__main__":
     print()
 
     props = ink.compute(
-        al=1.8141,
-        ipa=3.6281,
-        pg=3.6281,
-        mg=20.0 / 88.2,
-        temperature=23.66,
+        al=2.46,
+        ipa=0.0,
+        pg=4.9,
+        mg=0.31,
+        temperature=25,
     )
     print(props)
