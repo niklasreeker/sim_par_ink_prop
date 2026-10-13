@@ -1,0 +1,119 @@
+{
+  "sensors": {
+    "density": 1008.39,
+    "sound": 1523.23,
+    "temperature": 22.65
+  },
+  "search": {
+    "al_min": 0.0,
+    "al_max": 32.0,
+    "ipa_min": 0.0,
+    "ipa_max": 100.0,
+    "pg_per_al": 2.0,
+    "mg_per_al": 0.125,
+    "rho_tolerance": 0.0001,
+    "sound_tolerance": 0.0001,
+    "max_evaluations": 250
+  },
+  "calibration_field": "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+  "source_sha256": {
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\ink_calculator.py": "1693a8519ef7c6a3e3ebda22c89a598c09bd8d4d3eabb80c68b03651ba3c7cef",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\ipa_density.csv": "35547d43bd0c1c424a8020b26bd3d88821901ded85bd41805b4bd4cdcd338961",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\ipa_density_Ursprung.csv": "a9a8fb6b30421ec0e850fdd866e5e5d3685e1625cd3fb67545b9508bcd7437b4",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\ipa_refractive.csv": "99394bb8dc885bde4bee02eb26b4128bd0dc328fdd69eb912fbb6b9361a1ebdc",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\ipa_sound.csv": "e7793dae49433a70e4974cb3f2753d802a42ac50181abaa4d19110041aa04f90",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\ipa_viscosity.csv": "1153fd2944fec23570552f819022e16dd073729275c4d52f5955369ec807cf24",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_density.csv": "4866e0b39c3cbf8e49f2c7f4a91396ba027a742f3c8cfc99eee9e6cbea3d113f",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_density_Ursprung.csv": "06e5e851ba83a94ad7fd67b20dafc1768a4f2235025ccfa3afc8937e0632a862",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_refractive.csv": "91fb60a3475cbffaae76d7dc68dca938a5499c40ee8d00e1058072e3f8c9f792",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_sound.csv": "ea6127ca847d1d2714fe237c7dca9db0fd208c5f09ff50953e56f9bbb1d27dd7",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_sound_claude.csv": "caa95f6a2ee8177f495ba382681756c2d0f04696a4000b52fb0a31e2423560c7",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_sound_Ursprung.csv": "679eafc6a58f0fc215da0463fde7b47753bf73eb9bbe6cadd98c79c35efd9ba2",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\tables_parameters\\pg_viscosity.csv": "8ecde964d39204748e897f86b4c930407f3495b3fa6a425c9cbffdee38066ee0",
+    "C:\\Users\\Marc Andreu Ferrer\\Documents\\Masterarbeit_Reeker_Niklas\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json": "5f08a5c244f8174a360f9fd2ab9e6ee47567aafa60f7cdf0551f5d3db7b2663e"
+  },
+  "models": {
+    "physics": {
+      "status": "multiple_matches",
+      "solutions": [
+        {
+          "composition": {
+            "Al": 1.6862804630876982,
+            "IPA": 1.845300628050121,
+            "PG": 3.3725609261753964,
+            "MG": 0.21078505788596227,
+            "Water": 92.88507292480082
+          },
+          "solids_wt_pct": 1.8970655209736604,
+          "density": 1008.3899999999999,
+          "sound": 1523.2299999999998,
+          "density_difference": -1.1368683772161603e-13,
+          "sound_difference": -2.2737367544323206e-13,
+          "physics_density": 1008.3899999999999,
+          "physics_sound": 1523.2299999999998,
+          "correction_density": 0.0,
+          "correction_sound": 0.0,
+          "correction_density_spread": 0.0,
+          "correction_sound_spread": 0.0,
+          "outside_axes": [],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1593828079623528e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1008.3899999999999,
+          "base_model_sound": 1523.2299999999998,
+          "offset_corrected_sensor_density": 1008.39,
+          "offset_corrected_sensor_sound": 1523.23
+        },
+        {
+          "composition": {
+            "Al": 6.926256725315271,
+            "IPA": 23.484365901990753,
+            "PG": 13.852513450630543,
+            "MG": 0.8657820906644089,
+            "Water": 54.871081831399025
+          },
+          "solids_wt_pct": 7.79203881597968,
+          "density": 1008.3899999999999,
+          "sound": 1523.2299999999998,
+          "density_difference": -1.1368683772161603e-13,
+          "sound_difference": -2.2737367544323206e-13,
+          "physics_density": 1008.3899999999999,
+          "physics_sound": 1523.2299999999998,
+          "correction_density": 0.0,
+          "correction_sound": 0.0,
+          "correction_density_spread": 0.0,
+          "correction_sound_spread": 0.0,
+          "outside_axes": [],
+          "numerical_match": true,
+          "optimizer_converged": true,
+          "scaled_residual": 1.1593828079623528e-12,
+          "sensor_offset_density": 0.0,
+          "sensor_offset_sound": 0.0,
+          "base_model_density": 1008.3899999999999,
+          "base_model_sound": 1523.2299999999998,
+          "offset_corrected_sensor_density": 1008.39,
+          "offset_corrected_sensor_sound": 1523.23
+        }
+      ],
+      "best_approximation": null,
+      "starts_tried": 87,
+      "starts_with_result": 87,
+      "failed_starts": 0,
+      "model_messages": [],
+      "search_complete_proof": false
+    },
+    "hybrid": {
+      "status": "error",
+      "error": "The calibration field does not match ink_calculator.py. Use the corresponding model version or rebuild the A(w) calibration."
+    }
+  },
+  "units": {
+    "composition": "wt-%",
+    "density": "kg/m3",
+    "sound": "m/s",
+    "temperature": "deg C"
+  },
+  "numerical_tolerance_is_measurement_uncertainty": false
+}

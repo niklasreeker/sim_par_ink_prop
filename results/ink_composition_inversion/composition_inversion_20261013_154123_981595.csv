@@ -1,0 +1,4 @@
+﻿Model,Status,Solution,Al_wt_pct,IPA_wt_pct,PG_wt_pct,MG_wt_pct,Water_wt_pct,Solids_wt_pct,Input_Rho_kg_m3,Input_C_m_s,Temperature_C,Predicted_Rho_kg_m3,Predicted_C_m_s,Delta_Rho_kg_m3,Delta_C_m_s,Outside_Axes,Error
+physics,multiple_matches,1,1.6862804630876982,1.845300628050121,3.3725609261753964,0.21078505788596227,92.88507292480082,1.8970655209736604,1008.39,1523.23,22.65,1008.3899999999999,1523.2299999999998,-1.1368683772161603e-13,-2.2737367544323206e-13,,
+physics,multiple_matches,2,6.926256725315271,23.484365901990753,13.852513450630543,0.8657820906644089,54.871081831399025,7.79203881597968,1008.39,1523.23,22.65,1008.3899999999999,1523.2299999999998,-1.1368683772161603e-13,-2.2737367544323206e-13,,
+hybrid,error,,,,,,,,1008.39,1523.23,22.65,,,,,,The calibration field does not match ink_calculator.py. Use the corresponding model version or rebuild the A(w) calibration.
