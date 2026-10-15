@@ -444,6 +444,14 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
     figures = []
     def save(figure, name):
         figure.canvas.manager.set_window_title(f"Probe {ACTIVE_PROBE} - {name}")
+        prefix = f"Probe {ACTIVE_PROBE} – "
+        suptitle = getattr(figure, "_suptitle", None)
+        if suptitle is not None and not suptitle.get_text().startswith(prefix):
+            suptitle.set_text(prefix + suptitle.get_text())
+        for axis in figure.axes:
+            title = axis.get_title()
+            if title and not title.startswith(prefix):
+                axis.set_title(prefix + title)
         figure.tight_layout()
         for extension in formats:
             destination = output / f"{name}.{extension}"
