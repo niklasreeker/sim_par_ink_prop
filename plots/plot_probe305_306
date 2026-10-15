@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-"""Create six plain Matplotlib diagrams for Probe 305 or 306.
+"""Create six Matplotlib diagrams for Probe 305, 306, 308 or 309.
 
-Place this file in sim_par_ink_prop/plots, then run (both probes by default):
-    python plot_probe305.py
-    python plot_probe305.py --no-show
-    python plot_probe305.py --probe 306 --no-show
-    python plot_probe305.py --probe all --no-show
+Place this file in sim_par_ink_prop/plots, then run (all four by default):
+    python plot_probe305_306 --no-show
+    python plot_probe305_306 --probe 308 --no-show
+    python plot_probe305_306 --probe 309 --no-show
+    python plot_probe305_306 --probe all --no-show
 
 Dependencies: numpy, pandas, scipy, matplotlib; tzdata on Windows.
-The four measured window summaries and the manual protocol values are embedded
+The selected measured window summaries and manual protocol values are embedded
 below, so the original measurement CSV is not required. Optionally recalculate
 the sensor summaries with --csv PATH. This does not change the manual weights
 or dry-residue measurements. Times are local Europe/Berlin (MESZ).
 
-The composition inversion preserves Pigment:PG:MG = 1:2:0.125. P1 is anchored
+The composition inversion preserves Pigment:PG:MG using the weighed recipe
+(PG/pigment=2; MG/pigment is probe-specific). The first sensor point is anchored
 to the known initial recipe. CONSTANT measurement-minus-model offsets are then
 subtracted from every later measurement. Formal inverse solutions can violate
 the evaporation-only assumption; these violations are reported, not removed.
-Plot 6 independently inverts all four points with the calibration field,
+Plot 6 independently inverts all selected points with the calibration field,
 without anchoring P1 to the recipe or subtracting an additional sensor offset.
 The resulting compositions are pointwise fits, not a validated evaporation path.
 
 Temperature correction, separately for density and sound velocity:
     y_corrected = y_measured + h(composition, T_reference) - h(composition, T_i)
-T_reference is the unweighted mean of the FOUR point temperatures. Composition
+T_reference is the unweighted mean of selected point temperatures. Composition
 is held at each point's InkCalculator inverse solution. The correction leaves
 the constant offset in the measured signal and does not correct it twice.
 
@@ -38,11 +39,23 @@ Sample masses are approximate, and tank jumps differ from those masses.
 P4's sensor window is about 27-32 minutes after the sample/tank weighing.
 No mass-loss rate is treated as an independently verified evaporation rate.
 The P1 offset anchor is a conditional recipe assumption, despite pre-P1 loss.
+
+Extension 15 October 2026: 308/309 use the Gaussian 9/10/11 field (saved
+strength 0.70, bandwidth 0.30). The original IDW default remains for 305/306.
+Use --calibration-field PATH to explicitly compare all probes with one field.
+308/309 filter paired rho/c/T rows: SensOK=1, C_M>=1500, Rho_S<0.15,
+C_S<1.5, C_Sp<5. Manual MA160/tank observations have their own timestamps.
+MA160 308: bucket 2.08; 13:13 only 2.12/2.18. MA160 bucket 309 excluded.
+309 S3/S4 follow pump changes and are labelled as diagnostic fits.
+The recipe anchor is at S0; 309 S0 is the clean 11:54-11:59 window.
+Repeated minutes before/after sampling are retained; no invented seconds.
+New source CSV blob: 8125dce5f66619e4876224abc6deeebcbf1c82f3.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
@@ -50,6 +63,7 @@ from pathlib import Path
 import sys
 
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
@@ -58,8 +72,12 @@ from scipy.optimize import least_squares
 
 DATE = "2026-10-02"
 ACTIVE_PROBE = 305
+ACTIVE_FIELD_INFO = None
 FIELD_RELATIVE = Path("laboratory_measurement_L-Com/results/calibration_field/") / (
     "probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809/calibration_field.json"
+)
+GAUSSIAN_FIELD_RELATIVE = Path("laboratory_measurement_L-Com/results/calibration_field_gaussian_kernel_regression/") / (
+    "probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211/calibration_field.json"
 )
 
 # Sensor means and sample standard deviations (ddof=1), not total uncertainty.
@@ -119,6 +137,95 @@ EXPERIMENTS = {
               masses=[180.06, 360.12, 360.12, 22.5, 9002.]),
 }
 
+# Sensor windows and manual samples are separate series: they are NOT synchronous.
+# New windows use paired rho/c/T rows, not independently selected maxima.
+# Source: Messdaten_2026-10-14_08-39-38.csv, blob 8125dce5f66619e4876224abc6deeebcbf1c82f3.
+EXPERIMENTS.update({
+    308: dict(
+        date="2026-10-12", masses=[161.04, 322.08, 322.08, 20.15, 8052.4],
+        points=[
+            dict(name="S0", start="11:09", end="11:14", centre="11:11:53.068", n=5,
+                 rho=1006.8018, rho_sd=.0093648278147783, sound=1544.2646,
+                 sound_sd=.11791437571388536, temperature=21.086172),
+            dict(name="S1", start="13:22", end="13:24", centre="13:23:23.337", n=2,
+                 rho=1009.418, rho_sd=.0014142135623396532, sound=1535.2225,
+                 sound_sd=.4560838738653103, temperature=21.537215),
+            dict(name="S2", start="14:01", end="14:05", centre="14:03:23.417", n=4,
+                 rho=1010.43975, rho_sd=.05401465850422969, sound=1535.338,
+                 sound_sd=.30117658164832556, temperature=21.1722975),
+            dict(name="S3", start="15:05", end="15:08", centre="15:06:53.546", n=3,
+                 rho=1011.103, rho_sd=.057087651904750666, sound=1533.2413333333334,
+                 sound_sd=1.0880608132513923, temperature=20.653196666666663),
+        ],
+        # (clock, tank_g, cumulative weighed samples SINCE first post-P1 weighing)
+        tank_points=[("11:20",5120,0),("11:57",4775,0),("12:11",4660,0),
+            ("13:09",4170,0),("13:13",4135,0),("13:13",3960,150),
+            ("13:17",3925,150),("13:41",3690,150),("14:17",3380,150),
+            ("14:17",3270,220),("15:08",2850,220),("15:30",2660,220),
+            ("15:49",2525,220),("15:49",2460,261),("16:45",2100,261),
+            ("17:11",1930,261)],
+        # (name, actual sampling time, accepted MA160 repeats, location)
+        lab_points=[("Eimer","10:55",[2.08],"Eimer"),
+            ("P1","11:20",[2.02,1.99],"Tank"),
+            ("P2","13:13",[2.12,2.18],"Tank"),
+            ("P3","14:17",[2.37,2.36],"Tank"),
+            ("P4","15:49",[2.44,2.54,2.74,2.45],"Tank")],
+        notes=["MA160: Eimer nur 2.08 %; um 13:13 nur 2.12/2.18 % gemäß Nutzervorgabe.",
+            "Weitere MA160-Werte unverändert; keine zusätzliche Ausreißerentfernung.",
+            "Sensorfenster S0-S3 sind asynchron zu den Tankproben P1-P4.",
+            "Tankverlust ab 11:20 nach erster Probe; erste Entnahme 105 g nicht erneut abgezogen."]
+    ),
+    309: dict(
+        date="2026-10-13", masses=[149.32, 298.64, 298.64, 22.71, 9210.9],
+        points=[
+            dict(name="S0",start="11:54",end="11:59",centre="11:56:29.182",n=5,
+                 rho=1005.6316,rho_sd=.06708800190794167,sound=1533.195,
+                 sound_sd=.3183402268014283,temperature=20.21328),
+            dict(name="S1",start="13:58",end="14:03",centre="14:00:29.435",n=5,
+                 rho=1007.2782,rho_sd=.031244199461670816,sound=1527.431,
+                 sound_sd=.68127821042512,temperature=21.120292),
+            dict(name="S2",start="14:55",end="15:00",centre="14:57:29.551",n=5,
+                 rho=1008.5404,rho_sd=.02874543442008514,sound=1528.6014,
+                 sound_sd=.839106250721622,temperature=21.60581),
+            dict(name="S3_Pumpe",start="15:56",end="16:00",centre="15:57:59.674",n=4,
+                 rho=1008.591,rho_sd=.07128814768247362,sound=1530.26825,
+                 sound_sd=.22810578686222108,temperature=21.580395,diagnostic=True),
+            dict(name="S4_6l",start="16:19",end="16:23",centre="16:20:59.721",n=4,
+                 rho=1008.906,rho_sd=.061530480251668365,sound=1526.11175,
+                 sound_sd=.20031204823138485,temperature=21.6236575,diagnostic=True),
+        ],
+        tank_points=[("11:43",6370,0),("12:16",6130,0),("12:54",5800,0),
+            ("13:26",5545,0),("13:26",5435,90),("14:04",5125,90),
+            ("14:39",4840,90),("15:02",4640,90),("15:02",4550,140),
+            ("15:32",4290,140),("15:47",4160,140),("15:47",4030,260),
+            ("16:23",3790,260)],
+        lab_points=[("P1","11:43",[1.67,1.66],"Tank"),
+            ("P2","13:26",[1.88,1.86],"Tank"),
+            ("P3","15:02",[2.04,2.04],"Tank"),
+            ("P4","15:47",[2.13,2.14],"Tank")],
+        notes=["Verdünnte Rezeptur; Al/PG/MG-Verhältnis aus tatsächlich eingewogenen Massen.",
+            "Eimer-MA160 gemäß Nutzervorgabe ausgeschlossen.",
+            "S3_Pumpe/S4_6l nach Pumpenänderungen sind diagnostische Rückrechnungen.",
+            "S0 ist das luftarme Fenster 11:54-11:59, nicht die frühere Momentaufnahme 1005.845/1530.85.",
+            "Tankverlust ab 11:43 nach erster Probe; erste Entnahme 70 g nicht erneut abgezogen."]
+    ),
+})
+
+
+def tank_series(points):
+    """Independent tank observations; old 305/306 observations stay unchanged."""
+    rows = EXPERIMENTS[ACTIVE_PROBE].get("tank_points")
+    return rows if rows is not None else [(p["tank_time"],p["tank_g"],p["samples_g"]) for p in points]
+
+
+def lab_series(points):
+    rows = EXPERIMENTS[ACTIVE_PROBE].get("lab_points")
+    return rows if rows is not None else [(p["name"],p["sample"],p["dry"],"Tank") for p in points]
+
+
+def sample_sd(values):
+    return float(np.std(values,ddof=1)) if len(values)>1 else np.nan
+
 
 def composition(pigment: float, ipa: float) -> np.ndarray:
     """Mass percentages; 'al' in InkCalculator denotes encapsulated pigment."""
@@ -149,7 +256,7 @@ def load_calculator(repo: Path):
 
 
 class CalibrationField:
-    """Saved field's scaled IDW, including its per-property quality weights.
+    """Saved scaled IDW or Gaussian field, with per-property quality weights.
 
     Implements idw_residual() from residual_calibration_field.py without
     importing that script's unrelated CLI/data-file dependencies.
@@ -167,8 +274,24 @@ class CalibrationField:
             raw = file.read_bytes()
             lf = raw.replace(b"\r\n", b"\n")
             equivalent_hashes = {hashlib.sha256(data).hexdigest()
-                                 for data in [raw, lf, lf.replace(b"\n", b"\r\n")]}
+                                 for data in [raw, lf, lf.replace(b"\n", b"\r\n"),
+                                              lf.rstrip()+b"\n", (lf.rstrip()+b"\n").replace(b"\n",b"\r\n")]}
             if expected and expected not in equivalent_hashes:
+                # The repository changed only InkCalculator's __main__ demo.
+                # Accept that known source only if ALL code outside that block
+                # matches the verified training implementation's AST fingerprint.
+                if file.name == "ink_calculator.py" and expected == "cc8fb9bf7c9c1c018a266fd8e6dd1287c63ce28dadd41ffebef75a63120b43b8":
+                    tree = ast.parse(lf.decode("utf-8"))
+                    tree.body = [node for node in tree.body if not (
+                        isinstance(node,ast.If) and isinstance(node.test,ast.Compare)
+                        and ast.dump(node.test,include_attributes=False) == ast.dump(
+                            ast.parse("__name__ == '__main__'",mode="eval").body,include_attributes=False))]
+                    # Python 3.12 adds empty type_params fields; normalize these
+                    # so the fingerprint also works on supported Python 3.10/3.11.
+                    code = ast.dump(tree,include_attributes=False).replace(", type_params=[]", "")
+                    code_hash = hashlib.sha256(code.encode()).hexdigest()
+                    if code_hash == "8fdf806dc6cf099c96e063a8d6efdd686cf47070f89b19c4100b05fc2beb47f3":
+                        continue
                 raise ValueError(f"Kalibrierfeld passt nicht zur aktuellen Datei {file.name}. Feld neu erstellen oder --no-field verwenden.")
         self.axes = self.model.get("composition_axes", ["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct"])
         self.nodes = pd.DataFrame(self.model["nodes"])
@@ -181,6 +304,24 @@ class CalibrationField:
         lookup = dict(zip(["Al_wt_pct", "IPA_wt_pct", "PG_wt_pct", "MG_wt_pct"], comp[:4]))
         target = np.array([lookup[axis] for axis in self.axes])
         distances = np.linalg.norm((self.coordinates - target) / self.scale, axis=1)
+        if self.model["interpolation"].get("method") == "scaled_gaussian_kernel_regression":
+            bandwidth = float(self.model["interpolation"]["bandwidth"])
+            if bandwidth <= 0:
+                raise ValueError("Ungültige Gauß-Bandbreite.")
+            sq = distances**2
+            log_geometry = -.5*(sq-sq.min())/bandwidth**2
+            output=[]
+            for val_col,se_col in [("A_Rho_kg_m3","A_Rho_SE_kg_m3"),("A_C_m_s","A_C_SE_m_s")]:
+                se=pd.to_numeric(self.nodes[se_col],errors="coerce").to_numpy(float)
+                good=se[np.isfinite(se)&(se>=0)]
+                fallback=float(np.median(good)) if len(good) else 1.
+                se=np.where(np.isfinite(se)&(se>=0),se,fallback)
+                log_weights=log_geometry-2*np.log(np.maximum(se,max(fallback*.25,1e-9)))
+                weights=np.exp(log_weights-log_weights.max());weights/=weights.sum()
+                output.append(float(weights@self.nodes[val_col].to_numpy(float)))
+            return float(self.model.get("calibration_strength",1.))*np.array(output)
+        if self.model["interpolation"].get("method") != "scaled_inverse_distance_weighting":
+            raise ValueError("Nicht unterstützte Kalibrierfeld-Interpolation.")
         requested = int(self.model["interpolation"].get("neighbors", 4))
         count = len(distances) if requested <= 0 else min(requested, len(distances))
         indexes = np.argsort(distances)[:count]
@@ -244,10 +385,11 @@ def invert(calculator, points: list[dict], field=None, *, anchor_recipe=True) ->
 
 def read_sensor_csv(path: Path, points: list[dict]) -> None:
     frame = pd.read_csv(path, sep=None, engine="python", encoding="utf-8-sig")
-    required = {"Date", "ProbeNr", "Gueltig", "Rho_M", "C_M", "T_M"}
+    required = {"Date", "ProbeNr", "Rho_M", "C_M", "T_M"}
+    required |= {"SensOK","Rho_S","C_S","C_Sp"} if ACTIVE_PROBE in (308,309) else {"Gueltig"}
     if not required.issubset(frame.columns):
         raise ValueError(f"CSV-Spalten fehlen: {sorted(required - set(frame.columns))}")
-    for col in ["ProbeNr", "Gueltig", "Rho_M", "C_M", "T_M"]:
+    for col in required - {"Date"}:
         frame[col] = pd.to_numeric(frame[col].astype(str).str.replace(",", ".", regex=False), errors="coerce")
     if {"Deutsche Zeit", "UTC Offset"}.issubset(frame.columns):
         text = frame["Date"].astype(str) + " " + frame["Deutsche Zeit"].astype(str) + " " + frame["UTC Offset"].astype(str)
@@ -260,7 +402,9 @@ def read_sensor_csv(path: Path, points: list[dict]) -> None:
     for point in points:
         start = pd.Timestamp(f"{DATE} {point['start']}", tz="Europe/Berlin")
         end = pd.Timestamp(f"{DATE} {point['end']}", tz="Europe/Berlin")
-        selected = frame[(frame.ProbeNr == ACTIVE_PROBE) & (frame.Gueltig == 1)
+        quality = ((frame.SensOK == 1) & (frame.C_M >= 1500) & (frame.Rho_S < .15)
+                   & (frame.C_S < 1.5) & (frame.C_Sp < 5)) if ACTIVE_PROBE in (308,309) else frame.Gueltig == 1
+        selected = frame[(frame.ProbeNr == ACTIVE_PROBE) & quality
                          & (frame.local >= start) & (frame.local < end)].dropna(subset=["Rho_M", "C_M", "T_M"]).sort_values("local")
         if len(selected) < 2:
             raise ValueError(f"Zu wenige gültige Messungen für {point['name']} im Fenster {point['start']}-{point['end']}.")
@@ -279,8 +423,15 @@ def timestamp(time: str):
 
 
 def time_axis(axis, times, labels=None):
-    axis.set_xticks(times)
-    axis.set_xticklabels(labels if labels is not None else [time.strftime("%H:%M") for time in times])
+    if ACTIVE_PROBE in (308,309) and labels is None and len(times)>7:
+        axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4,maxticks=7))
+        axis.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    else:
+        axis.set_xticks(times)
+        axis.set_xticklabels(labels if labels is not None else [time.strftime("%H:%M") for time in times])
+    if ACTIVE_PROBE in (308,309) and labels is not None:
+        for label in axis.get_xticklabels():
+            label.set_rotation(25);label.set_ha("right");label.set_fontsize(9)
     axis.set_xlabel(f"Uhrzeit am {pd.Timestamp(DATE):%d.%m.%Y} (MESZ)")
     axis.grid(True, alpha=.3)
     axis.margins(x=.08)
@@ -312,13 +463,21 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
     normalized = np.column_stack([rho, sound]) + correction
 
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    times = [timestamp(p["tank_time"]) for p in points]
-    tank = np.array([p["tank_g"] for p in points]); samples = np.array([p["samples_g"] for p in points])
+    tank_rows=tank_series(points)
+    times = [timestamp(row[0]) for row in tank_rows]
+    tank = np.array([row[1] for row in tank_rows]); samples = np.array([row[2] for row in tank_rows])
     loss = tank[0] - tank - samples
     ax.plot(times, loss, "o-", label="Verlust ohne Probenentnahmen")
     ax.plot(times, tank[0] - tank, "o--", label="Tankverlust einschließlich Proben")
     ax.set(title="Massenverlust des Tanks", ylabel="Kumulativer Massenverlust [g]")
-    time_axis(ax, times); ax.legend()
+    time_axis(ax, times)
+    if ACTIVE_PROBE in (308,309):
+        duration=(times[-1]-times[0]).total_seconds()/3600
+        ax.text(.03,.95,f"Mittlerer bereinigter Verlust: {loss[-1]/duration:.1f} g/h",
+                transform=ax.transAxes,va="top")
+        ax.legend(loc="lower right")
+    else:
+        ax.legend()
     save(fig, "01_Massenverlust")
 
     def sensor_plot(values, title, name, compare_raw=False):
@@ -328,6 +487,10 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
                 ax.plot(sensor_times, [p[key] for p in points], "o--", color="0.6", label="Unkorrigiert")
             ax.errorbar(sensor_times, values[:, j], yerr=[p[key + "_sd"] for p in points], fmt="o-", capsize=3,
                         label="Temperaturkorrigiert" if compare_raw else "Mittelwert ± s")
+            diagnostic=[i for i,p in enumerate(points) if p.get("diagnostic")]
+            if diagnostic:
+                ax.plot([sensor_times[i] for i in diagnostic],values[diagnostic,j],"x",color="red",
+                        markersize=8,label="Nach Pumpenänderung (diagnostisch)")
             ax.set_ylabel(label); time_axis(ax, sensor_times); ax.legend()
         axes[0].set_xlabel("")
         fig.suptitle(title)
@@ -335,9 +498,10 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
     sensor_plot(np.column_stack([rho, sound]), "Dichte und Schallgeschwindigkeit", "02_Dichte_Schallgeschwindigkeit")
 
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    times = [timestamp(p["sample"]) for p in points]
-    dry = np.array([np.mean(p["dry"]) for p in points])
-    sd = np.array([np.std(p["dry"], ddof=1) for p in points])
+    labs=lab_series(points)
+    times = [timestamp(row[1]) for row in labs]
+    dry = np.array([np.mean(row[2]) for row in labs])
+    sd = np.array([sample_sd(row[2]) for row in labs])
     ax.errorbar(times, dry, yerr=sd, fmt="o-", capsize=3, label="Festkörpergehalt ± s")
     if ACTIVE_PROBE == 305:
         ax.plot(times[0], dry[0], "x", color="red", markersize=8, label="P1: auffällige Messung")
@@ -345,7 +509,10 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
         ax.errorbar(timestamp("10:27"), np.mean([2.04, 2.11]),
                     yerr=np.std([2.04, 2.11], ddof=1), fmt="s", capsize=3,
                     label="Eimer vor Befüllen ± s")
-    ax.axhline(STANDARD[0] + STANDARD[3], color="0.4", linestyle="--", label="Rezeptur: Pigment + MG (2,04 %)")
+    if ACTIVE_PROBE == 308:
+        ax.plot(times[0],dry[0],"s",label="Eimer: akzeptierter Einzelwert 2,08 %")
+    ax.axhline(STANDARD[0] + STANDARD[3], color="0.4", linestyle="--",
+               label=f"Rezeptur: Pigment + MG ({STANDARD[0]+STANDARD[3]:.3f} %)")
     ax.set(title="Festkörpergehalt", ylabel="Festkörpergehalt [Masse-%]")
     time_axis(ax, [timestamp("10:27"), *times] if ACTIVE_PROBE == 306 else times); ax.legend()
     save(fig, "03_Festkoerpergehalt")
@@ -368,12 +535,13 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
     ratio = states[:, [1, 4]] / states[:, [0]]
     flags = [False] + [bool(np.any(ratio[i] > ratio[0] + 1e-8)
                                   or np.any(ratio[i] > ratio[i - 1] + 1e-8)) for i in range(1, len(points))]
-    point_labels = [p["name"] + ("*" if flag else "") + "\n" + time.strftime("%H:%M")
+    point_labels = [(p["name"].split("_")[0] if p.get("diagnostic") else p["name"]) + (" [P]" if p.get("diagnostic") else "") + ("*" if flag else "") + "\n" + time.strftime("%H:%M")
                     for p, time, flag in zip(points, sensor_times, flags)]
     for ax in axes:
         time_axis(ax, sensor_times, point_labels)
     axes[1].set_xlabel(f"Uhrzeit am {pd.Timestamp(DATE):%d.%m.%Y} (MESZ)"
-                      + ("; *: Bilanzabweichung" if any(flags) else ""))
+                      + ("; *: Bilanzabweichung" if any(flags) else "")
+                      + ("; [P]: nach Pumpenänderung" if any(p.get("diagnostic") for p in points) else ""))
     axes[0].set_xlabel("")
     save(fig, "04_Rueckgerechnete_Zusammensetzung")
 
@@ -397,19 +565,20 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
         flags = [False] + [bool(np.any(ratios[i] > ratios[0] + 1e-8)
                                or np.any(ratios[i] > ratios[i - 1] + 1e-8))
                            for i in range(1, len(points))]
-        labels = [point["name"] + ("*" if flag else "") + "\n" + time.strftime("%H:%M")
+        labels = [(point["name"].split("_")[0] if point.get("diagnostic") else point["name"]) + (" [P]" if point.get("diagnostic") else "") + ("*" if flag else "") + "\n" + time.strftime("%H:%M")
                   for point, time, flag in zip(points, sensor_times, flags)]
         for ax in axes:
             time_axis(ax, sensor_times, labels)
         axes[0].set_xlabel("")
         axes[1].set_xlabel(f"Uhrzeit am {pd.Timestamp(DATE):%d.%m.%Y} (MESZ)"
-                          + ("; *: Bilanzabweichung" if any(flags) else ""))
+                          + ("; *: Bilanzabweichung" if any(flags) else "")
+                          + ("; [P]: nach Pumpenänderung" if any(p.get("diagnostic") for p in points) else ""))
         save(fig, "06_Zusammensetzung_Kalibrierfeld_ohne_Offset")
     summary = pd.DataFrame({"Punkt": [p["name"] for p in points], "T_C": temperatures,
                             "Rho_roh_kg_m3": rho, "C_roh_m_s": sound,
                             "Delta_Rho_T_kg_m3": correction[:, 0], "Delta_C_T_m_s": correction[:, 1],
                             "Rho_Tref_kg_m3": normalized[:, 0], "C_Tref_m_s": normalized[:, 1]})
-    print(f"\nReferenztemperatur (Mittel der vier Punkte): {reference:.9f} °C")
+    print(f"\nReferenztemperatur (Mittel der {len(points)} Sensorpunkte): {reference:.9f} °C")
     print(summary.to_string(index=False, float_format=lambda v: f"{v:.6f}"))
     print("Fehlerbalken: ursprüngliche Fensterstreuung, keine gesamte Modell-/Korrekturunsicherheit.")
     export_tables(points, states, hybrid, field_states_without_offset, summary, output)
@@ -427,30 +596,45 @@ def export_tables(points, states, hybrid, direct, temperature_summary, output):
     rows = []
     for p in points:
         rows.append(dict(Punkt=p["name"], ProbeNr=ACTIVE_PROBE, Datum=DATE,
-                         Probennahme=p["sample"], Tankwiegezeit=p["tank_time"],
+                         Probennahme=p.get("sample"), Tankwiegezeit=p.get("tank_time"),
                          Sensorfenster_Start=p["start"], Sensorfenster_Ende_exklusiv=p["end"],
                          Sensor_Mitte=p["centre"], n=p["n"],
-                         Tank_g=p["tank_g"], Proben_seit_P1_g=p["samples_g"],
+                         Tank_g=p.get("tank_g",np.nan), Proben_seit_P1_g=p.get("samples_g",np.nan),
                          Rho_kg_m3=p["rho"], Rho_SD_kg_m3=p["rho_sd"],
                          C_m_s=p["sound"], C_SD_m_s=p["sound_sd"], T_C=p["temperature"],
-                         Festkoerper_gemessen_pct=np.mean(p["dry"]),
-                         Festkoerper_SD_pct=np.std(p["dry"], ddof=1)))
+                         Diagnostisch_nach_Pumpenaenderung=bool(p.get("diagnostic",False)),
+                         Festkoerper_gemessen_pct=np.mean(p["dry"]) if p.get("dry") else np.nan,
+                         Festkoerper_SD_pct=sample_sd(p.get("dry",[]))))
     pd.DataFrame(rows).to_csv(output / "messpunkte.csv", index=False, encoding="utf-8-sig")
     rates = []
-    for previous, current in zip(points[:-1], points[1:]):
-        minutes = (timestamp(current["tank_time"]) - timestamp(previous["tank_time"])).total_seconds() / 60.
-        if minutes <= 0:
+    tank_rows=tank_series(points)
+    for index,(previous,current) in enumerate(zip(tank_rows[:-1],tank_rows[1:]),1):
+        minutes = (timestamp(current[0]) - timestamp(previous[0])).total_seconds() / 60.
+        if minutes < 0:
             raise ValueError("Tankwiegezeiten müssen chronologisch sein.")
-        tank_loss = previous["tank_g"] - current["tank_g"]
-        sampling = current["samples_g"] - previous["samples_g"]
+        tank_loss = previous[1] - current[1]
+        sampling = current[2] - previous[2]
         loss = tank_loss - sampling
-        rates.append(dict(Intervall=previous["name"] + "-" + current["name"],
-                          Start=previous["tank_time"], Ende=current["tank_time"],
+        label=(points[index-1]["name"]+"-"+points[index]["name"]) if ACTIVE_PROBE in (305,306) else str(index)
+        rates.append(dict(Intervall=label,
+                          Start=previous[0], Ende=current[0],
                           Dauer_min=minutes, Tankverlust_g=tank_loss, Probenverlust_g=sampling,
-                          Bereinigter_Verlust_g=loss, Rate_g_h=loss * 60. / minutes))
+                          Bereinigter_Verlust_g=loss, Rate_g_h=loss*60./minutes if minutes else np.nan))
     pd.DataFrame(rates).to_csv(output / "verlustraten.csv", index=False, encoding="utf-8-sig")
     print("\nTankverlustraten, ohne Probenentnahmen (keine gesicherte Verdunstungsrate):")
     print(pd.DataFrame(rates).to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+    if ACTIVE_PROBE in (308,309):
+        tank_frame=pd.DataFrame(tank_rows,columns=["Uhrzeit","Tank_g","Proben_seit_Start_g"])
+        tank_frame["Bereinigter_Verlust_g"]=tank_rows[0][1]-tank_frame.Tank_g-tank_frame.Proben_seit_Start_g
+        tank_frame.to_csv(output/"tankmessungen.csv",index=False,encoding="utf-8-sig")
+        duration=(timestamp(tank_rows[-1][0])-timestamp(tank_rows[0][0])).total_seconds()/3600
+        pd.DataFrame([dict(Start=tank_rows[0][0],Ende=tank_rows[-1][0],Dauer_h=duration,
+             Bereinigter_Verlust_g=tank_frame.Bereinigter_Verlust_g.iloc[-1],
+             Mittlerer_Verlust_g_h=tank_frame.Bereinigter_Verlust_g.iloc[-1]/duration)]).to_csv(
+             output/"mittlerer_tankverlust.csv",index=False,encoding="utf-8-sig")
+        pd.DataFrame([dict(Punkt=n,Probennahme=t,Ort=loc,Wiederholungen="/".join(map(str,vals)),
+             Festkoerper_pct=np.mean(vals),SD_pct=sample_sd(vals),n=len(vals))
+             for n,t,vals,loc in lab_series(points)]).to_csv(output/"festkoerper_messungen.csv",index=False,encoding="utf-8-sig")
     temperature_summary.to_csv(output / "temperaturkorrektur.csv", index=False, encoding="utf-8-sig")
     compositions, comparison = [], []
     for method, values in [("Calculator_mit_P1_Offset", states),
@@ -463,19 +647,28 @@ def export_tables(points, states, hybrid, direct, temperature_summary, output):
                                      Pigment_pct=comp[0], IPA_pct=comp[1], PG_pct=comp[2],
                                      MG_pct=comp[3], Wasser_pct=comp[4]))
             calculated = comp[0] + comp[3]
-            measured = float(np.mean(point["dry"]))
+            measured = float(np.mean(point["dry"])) if point.get("dry") else np.nan
             comparison.append(dict(Punkt=point["name"], Methode=method,
                                    Festkoerper_gemessen_pct=measured,
                                    Festkoerper_berechnet_pct=calculated,
-                                   Differenz_gemessen_minus_berechnet_Prozentpunkte=measured-calculated))
+                                   Differenz_gemessen_minus_berechnet_Prozentpunkte=measured-calculated,
+                                   Hinweis="Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv" if not point.get("dry") else ""))
     pd.DataFrame(compositions).to_csv(output / "zusammensetzungen.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(comparison).to_csv(output / "festkoerpervergleich.csv", index=False, encoding="utf-8-sig")
-    notes = ["Fensterende exklusiv; nur Gueltig=1 in ausgewählten luftarmen MTU-Pausen.",
+    quality_note=("SensOK=1, C_M>=1500, Rho_S<0.15, C_S<1.5, C_Sp<5; gepaarte rho/c/T-Zeilen in luftarmen Fenstern."
+                  if ACTIVE_PROBE in (308,309) else "Fensterende exklusiv; nur Gueltig=1 in ausgewählten luftarmen MTU-Pausen.")
+    notes = [quality_note,
              "Fenster-SD ist keine vollständige Mess- oder Modellunsicherheit.",
              "Plot 4: Calculator und Kalibrierfeld mit separatem P1-Rezepturanker.",
              "Plot 6: alle Punkte unabhängig mit Kalibrierfeld, ohne zusätzlichen Offset.",
              "Probenentnahmen ändern bei homogener Tinte die Zusammensetzung nicht unmittelbar.",
              "Tankverlust kann Änderungen des Leitungsinventars enthalten."]
+    notes += EXPERIMENTS[ACTIVE_PROBE].get("notes",[])
+    if ACTIVE_PROBE in (308,309):
+        notes += ["Sensor-/MA160-/Tankpunkte separat; keine künstliche zeitgleiche Paarung oder Interpolation.",
+                  "P1-Rezepturanker bezeichnet hier S0 (erstes akzeptiertes Sensorfenster).",
+                  "Gauß-Kalibrierfeld 9/10/11, gespeichertes alpha=0.70 und Bandbreite=0.30.",
+                  "Gleiche dokumentierte Minute vor/nach Entnahme: Restverlust dargestellt, Intervallrate undefiniert."]
     if ACTIVE_PROBE == 306:
         notes += ["11:35 MTU Stopp im zweiten Zyklus vermutlich 13:35; nicht als bestätigte Zeit behandelt.",
                   "Probenmassen etwa 100, 85, 81, 93 g; Waagensprünge 145, 115, 80, 75 g.",
@@ -486,22 +679,24 @@ def export_tables(points, states, hybrid, direct, temperature_summary, output):
                   "P4 Probe/Tank 15:25; Sensor 15:52-15:57. Kein zeitgleicher Vergleich."]
     (output / "auswertung_metadata.json").write_text(json.dumps(
         dict(probe=ACTIVE_PROBE, date=DATE, nominal_recipe_pct=dict(zip(COMPONENTS, STANDARD.tolist())),
-             calibration_field_default=str(FIELD_RELATIVE), notes=notes), ensure_ascii=False, indent=2), encoding="utf-8")
+             calibration_field_default=str(GAUSSIAN_FIELD_RELATIVE if ACTIVE_PROBE in (308,309) else FIELD_RELATIVE),
+             calibration_field_used=ACTIVE_FIELD_INFO,
+             notes=notes), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo-root", type=Path, help="Ordner mit ink_calculator.py und tables_parameters")
-    parser.add_argument("--probe", choices=["305", "306", "all"], default="all",
-                        help="Versuch auswählen; Standard: all (305 und 306)")
-    parser.add_argument("--output-dir", type=Path, help="Standard: Skriptordner/results_Probe305 und results_Probe306")
+    parser.add_argument("--probe", choices=["305", "306", "308", "309", "all"], default="all",
+                        help="Versuch auswählen; Standard: all (305, 306, 308 und 309)")
+    parser.add_argument("--output-dir", type=Path, help="Standard: Skriptordner/results_ProbeNNN; bei all ein Unterordner je Probe")
     parser.add_argument("--csv", type=Path, help="Optional: Sensorfenster aus dieser Mess-CSV neu auswerten")
     parser.add_argument("--calibration-field", type=Path, help="Optional: anderes gespeichertes calibration_field.json")
     parser.add_argument("--no-field", action="store_true", help="Nur Ink Calculator verwenden")
     parser.add_argument("--no-show", action="store_true", help="Diagramme speichern, keine Fenster öffnen")
     parser.add_argument("--formats", nargs="+", choices=["png", "pdf", "svg"], default=["png"], help="Standard: png; z.B. --formats png pdf")
     args = parser.parse_args()
-    for probe in ([305, 306] if args.probe == "all" else [int(args.probe)]):
+    for probe in ([305, 306, 308, 309] if args.probe == "all" else [int(args.probe)]):
         run_probe(args, probe)
     # Show only after both probes have finished; closing Probe 305 windows
     # must not be required before Probe 306 is calculated and saved.
@@ -511,8 +706,9 @@ def main():
 
 
 def run_probe(args, probe):
-    global DATE, STANDARD, MG_PER_PIGMENT, ACTIVE_PROBE
+    global DATE, STANDARD, MG_PER_PIGMENT, ACTIVE_PROBE, ACTIVE_FIELD_INFO
     ACTIVE_PROBE = probe
+    ACTIVE_FIELD_INFO = None
     experiment = EXPERIMENTS[probe]
     DATE = experiment["date"]
     masses = np.array(experiment["masses"])
@@ -520,7 +716,7 @@ def run_probe(args, probe):
     MG_PER_PIGMENT = masses[3] / masses[0]
     repo = find_repo(args.repo_root)
     calculator = load_calculator(repo)
-    points = [dict(p, dry=list(p["dry"])) for p in experiment["points"]]
+    points = [dict(p, **({"dry":list(p["dry"])} if "dry" in p else {})) for p in experiment["points"]]
     print(f"\n=== Probe {probe}, {DATE} ===")
     if probe == 306:
         print("Protokoll: zweite Angabe '11:35 MTU Stopp' als 13:35 interpretiert.")
@@ -529,6 +725,8 @@ def run_probe(args, probe):
         print("P4: Sensorfenster 15:52-15:57, Probe/Tankwaage 15:25; Zeitversatz beachten.")
     if args.csv:
         read_sensor_csv(args.csv, points)
+    for note in experiment.get("notes",[]):
+        print("HINWEIS:",note)
     states, offset = invert(calculator, points)
     print(f"Ink Calculator Offset: Dichte {offset[0]:+.6f} kg/m³, Schall {offset[1]:+.6f} m/s")
     print(pd.DataFrame(states, index=[p["name"] for p in points], columns=COMPONENTS).to_string(float_format=lambda v: f"{v:.6f}"))
@@ -538,9 +736,12 @@ def run_probe(args, probe):
             print(f"HINWEIS {points[i]['name']}: Wasser/Pigment oder IPA/Pigment steigt gegenüber dem Start oder dem vorherigen Punkt. Die formale Rückrechnung verletzt die reine Verdunstungsannahme.")
     hybrid = None
     field_states_without_offset = None
-    field_path = args.calibration_field or repo / FIELD_RELATIVE
+    field_path = args.calibration_field or repo / (GAUSSIAN_FIELD_RELATIVE if probe in (308,309) else FIELD_RELATIVE)
     if not args.no_field and field_path.is_file():
         field = CalibrationField(field_path, repo)
+        ACTIVE_FIELD_INFO = dict(path=str(field_path),method=field.model["interpolation"]["method"],
+                                 strength=field.model.get("calibration_strength",1.),
+                                 bandwidth=field.model["interpolation"].get("bandwidth"))
         hybrid, field_offset = invert(calculator, points, field)
         field_states_without_offset, _ = invert(calculator, points, field, anchor_recipe=False)
         print("\nPlot 6: punktweise Kalibrierfeld-Rückrechnung ohne zusätzlichen Sensoroffset")
@@ -577,3 +778,4 @@ if __name__ == "__main__":
         main()
     except (ValueError, FileNotFoundError, ImportError) as error:
         raise SystemExit(str(error)) from error
+
