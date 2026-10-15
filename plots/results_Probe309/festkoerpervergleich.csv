@@ -1,0 +1,16 @@
+﻿Punkt,Methode,Festkoerper_gemessen_pct,Festkoerper_berechnet_pct,Differenz_gemessen_minus_berechnet_Prozentpunkte,Hinweis
+S0,Calculator_mit_P1_Offset,,1.723711224513312,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S1,Calculator_mit_P1_Offset,,1.7615332987788301,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S2,Calculator_mit_P1_Offset,,1.9186357890042238,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S3_Pumpe,Calculator_mit_P1_Offset,,1.9628652559592596,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S4_6l,Calculator_mit_P1_Offset,,1.9007724824596017,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S0,Kalibrierfeld_mit_P1_Offset,,1.723711224513312,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S1,Kalibrierfeld_mit_P1_Offset,,1.7686586479106132,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S2,Kalibrierfeld_mit_P1_Offset,,1.9236445862873506,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S3_Pumpe,Kalibrierfeld_mit_P1_Offset,,1.9660930706541349,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S4_6l,Kalibrierfeld_mit_P1_Offset,,1.9071133489606962,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S0,Kalibrierfeld_ohne_Offset_Plot6,,1.862660124989779,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S1,Kalibrierfeld_ohne_Offset_Plot6,,1.9171909312835975,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S2,Kalibrierfeld_ohne_Offset_Plot6,,2.0722003605534143,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S3_Pumpe,Kalibrierfeld_ohne_Offset_Plot6,,2.1134069498729775,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv
+S4_6l,Kalibrierfeld_ohne_Offset_Plot6,,2.057194836082928,,Zeitlich getrennte MA160-Werte siehe festkoerper_messungen.csv

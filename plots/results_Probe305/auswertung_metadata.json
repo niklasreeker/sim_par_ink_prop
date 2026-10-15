@@ -9,6 +9,12 @@
     "Wasser": 90.702947845805
   },
   "calibration_field_default": "laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+  "calibration_field_used": {
+    "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field\\probe_9_10_11__Kennfeld_v2_23__korrigiert__20260928_110809\\calibration_field.json",
+    "method": "scaled_inverse_distance_weighting",
+    "strength": 1.0,
+    "bandwidth": null
+  },
   "notes": [
     "Fensterende exklusiv; nur Gueltig=1 in ausgewählten luftarmen MTU-Pausen.",
     "Fenster-SD ist keine vollständige Mess- oder Modellunsicherheit.",

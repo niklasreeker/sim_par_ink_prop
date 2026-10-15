@@ -1,0 +1,35 @@
+{
+  "probe": 309,
+  "date": "2026-10-13",
+  "nominal_recipe_pct": {
+    "Pigment/Al": 1.4961609024259008,
+    "IPA": 2.9923218048518017,
+    "PG": 2.9923218048518017,
+    "MG": 0.22755032208741102,
+    "Wasser": 92.29164516578308
+  },
+  "calibration_field_default": "laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211\\calibration_field.json",
+  "calibration_field_used": {
+    "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211\\calibration_field.json",
+    "method": "scaled_gaussian_kernel_regression",
+    "strength": 0.7,
+    "bandwidth": 0.3
+  },
+  "notes": [
+    "SensOK=1, C_M>=1500, Rho_S<0.15, C_S<1.5, C_Sp<5; gepaarte rho/c/T-Zeilen in luftarmen Fenstern.",
+    "Fenster-SD ist keine vollständige Mess- oder Modellunsicherheit.",
+    "Plot 4: Calculator und Kalibrierfeld mit separatem P1-Rezepturanker.",
+    "Plot 6: alle Punkte unabhängig mit Kalibrierfeld, ohne zusätzlichen Offset.",
+    "Probenentnahmen ändern bei homogener Tinte die Zusammensetzung nicht unmittelbar.",
+    "Tankverlust kann Änderungen des Leitungsinventars enthalten.",
+    "Verdünnte Rezeptur; Al/PG/MG-Verhältnis aus tatsächlich eingewogenen Massen.",
+    "Eimer-MA160 gemäß Nutzervorgabe ausgeschlossen.",
+    "S3_Pumpe/S4_6l nach Pumpenänderungen sind diagnostische Rückrechnungen.",
+    "S0 ist das luftarme Fenster 11:54-11:59, nicht die frühere Momentaufnahme 1005.845/1530.85.",
+    "Tankverlust ab 11:43 nach erster Probe; erste Entnahme 70 g nicht erneut abgezogen.",
+    "Sensor-/MA160-/Tankpunkte separat; keine künstliche zeitgleiche Paarung oder Interpolation.",
+    "P1-Rezepturanker bezeichnet hier S0 (erstes akzeptiertes Sensorfenster).",
+    "Gauß-Kalibrierfeld 9/10/11, gespeichertes alpha=0.70 und Bandbreite=0.30.",
+    "Gleiche dokumentierte Minute vor/nach Entnahme: Restverlust dargestellt, Intervallrate undefiniert."
+  ]
+}

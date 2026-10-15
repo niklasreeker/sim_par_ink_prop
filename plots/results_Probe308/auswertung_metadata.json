@@ -1,0 +1,34 @@
+{
+  "probe": 308,
+  "date": "2026-10-12",
+  "nominal_recipe_pct": {
+    "Pigment/Al": 1.8139731350849033,
+    "IPA": 3.6279462701698066,
+    "PG": 3.6279462701698066,
+    "MG": 0.22697192419250373,
+    "Wasser": 90.70316240038298
+  },
+  "calibration_field_default": "laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211\\calibration_field.json",
+  "calibration_field_used": {
+    "path": "C:\\Users\\nikla\\OneDrive\\Documents\\01_Uni\\01_Master\\00_Masterarbeit\\sim_par_ink_prop\\laboratory_measurement_L-Com\\results\\calibration_field_gaussian_kernel_regression\\probe_9_10_11__Messdaten_2026-10-08_09-59-49__20261009_152211\\calibration_field.json",
+    "method": "scaled_gaussian_kernel_regression",
+    "strength": 0.7,
+    "bandwidth": 0.3
+  },
+  "notes": [
+    "SensOK=1, C_M>=1500, Rho_S<0.15, C_S<1.5, C_Sp<5; gepaarte rho/c/T-Zeilen in luftarmen Fenstern.",
+    "Fenster-SD ist keine vollständige Mess- oder Modellunsicherheit.",
+    "Plot 4: Calculator und Kalibrierfeld mit separatem P1-Rezepturanker.",
+    "Plot 6: alle Punkte unabhängig mit Kalibrierfeld, ohne zusätzlichen Offset.",
+    "Probenentnahmen ändern bei homogener Tinte die Zusammensetzung nicht unmittelbar.",
+    "Tankverlust kann Änderungen des Leitungsinventars enthalten.",
+    "MA160: Eimer nur 2.08 %; um 13:13 nur 2.12/2.18 % gemäß Nutzervorgabe.",
+    "Weitere MA160-Werte unverändert; keine zusätzliche Ausreißerentfernung.",
+    "Sensorfenster S0-S3 sind asynchron zu den Tankproben P1-P4.",
+    "Tankverlust ab 11:20 nach erster Probe; erste Entnahme 105 g nicht erneut abgezogen.",
+    "Sensor-/MA160-/Tankpunkte separat; keine künstliche zeitgleiche Paarung oder Interpolation.",
+    "P1-Rezepturanker bezeichnet hier S0 (erstes akzeptiertes Sensorfenster).",
+    "Gauß-Kalibrierfeld 9/10/11, gespeichertes alpha=0.70 und Bandbreite=0.30.",
+    "Gleiche dokumentierte Minute vor/nach Entnahme: Restverlust dargestellt, Intervallrate undefiniert."
+  ]
+}
