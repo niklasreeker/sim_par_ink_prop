@@ -443,14 +443,47 @@ def create_plots(calculator, points, states, hybrid, output: Path, formats, show
     output.mkdir(parents=True, exist_ok=True)
     figures = []
     def save(figure, name):
-        figure.canvas.manager.set_window_title(f"Probe {ACTIVE_PROBE} - {name}")
+        # Titel des geöffneten Diagrammfensters
+        figure.canvas.manager.set_window_title(
+            f"Probe {ACTIVE_PROBE} - {name}"
+        )
+
+        prefix = f"Probe {ACTIVE_PROBE} – "
+
+        # Übergeordneter Titel, z. B. bei Dichte/Schall-Diagrammen
+        suptitle = getattr(figure, "_suptitle", None)
+
+        if suptitle is not None:
+            title = suptitle.get_text()
+
+            if not title.startswith(prefix):
+                suptitle.set_text(prefix + title)
+
+        # Titel einzelner Achsen, z. B. beim Massenverlust
+        for axis in figure.axes:
+            title = axis.get_title()
+
+            if title and not title.startswith(prefix):
+                axis.set_title(prefix + title)
+
         figure.tight_layout()
+
+        # Diagramme in den ausgewählten Formaten speichern
         for extension in formats:
             destination = output / f"{name}.{extension}"
             temporary = output / f".{name}_tmp.{extension}"
-            figure.savefig(temporary, dpi=300, bbox_inches="tight")
+
+            figure.savefig(
+                temporary,
+                dpi=300,
+                bbox_inches="tight",
+            )
+
             if temporary.stat().st_size == 0:
-                raise ValueError(f"Leere Diagrammdatei: {destination.name}")
+                raise ValueError(
+                    f"Leere Diagrammdatei: {destination.name}"
+                )
+
             temporary.replace(destination)
         figures.append(figure)
     sensor_times = [timestamp(p["centre"]) for p in points]
